@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arabic-lint"
+version = "0.1.0"
+description = "Find Arabic text corrupted by reshape+bidi before it was stored. Zero dependencies."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "Syamjith NK", email = "hello@syamjithnk.com" }]
+keywords = ["arabic", "unicode", "bidi", "linter", "i18n", "rtl", "text-shaping"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Natural Language :: Arabic",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Syamjith-NK/arabic-lint"
+Issues = "https://github.com/Syamjith-NK/arabic-lint/issues"
+
+[project.scripts]
+arabic-lint = "arabic_lint.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
