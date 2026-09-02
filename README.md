@@ -39,9 +39,20 @@ a translation file. Now the corruption is at rest and every downstream reader
 inherits it. It renders as clean-looking Arabic, so nobody who does not read the
 script will ever notice.
 
-The signature is unambiguous: Arabic **Presentation Forms-B** codepoints
-(U+FE70–U+FEFF) in stored text. Those exist for legacy-encoding compatibility;
-correctly authored modern Arabic never contains them.
+The signature is unambiguous: Arabic **presentation form** codepoints in stored
+text — all of Forms-B (U+FE70–U+FEFF), plus the positional forms in Forms-A
+(U+FB50–U+FDFF). Those exist for legacy-encoding compatibility; correctly
+authored modern Arabic never contains them.
+
+The Arabic **word ligatures** ﷲ ﷺ ﷻ ﷽ (U+FDF0–U+FDFD) are deliberately
+excluded — people type those on purpose, and flagging them would mark correct
+religious and formal text as corrupt.
+
+Forms-A matters more than it looks. Persian and Urdu share most of their
+alphabet with Arabic, so most reshaped Persian already trips Forms-B — but it
+was being *under-counted*, and words built only from Persian-specific letters
+(گچ, چپ, گپ, پژ, پی, and a bare Farsi yeh) have no Forms-B mapping at all and
+were missed outright.
 
 ## Why it reports instead of fixing
 

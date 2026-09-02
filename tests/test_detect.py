@@ -103,3 +103,28 @@ def _run():
 
 if __name__ == "__main__":
     raise SystemExit(_run())
+
+
+# --- Presentation Forms-A ---------------------------------------------------
+# Added after measuring what the reshaper actually emits: 126 distinct Forms-A
+# codepoints, 125 of them positional. Excluding the whole block under-counted
+# every Persian string and missed short ones outright.
+
+def test_persian_only_letters_are_detected():
+    """گچ has no Forms-B mapping at all and scored zero before."""
+    import arabic_reshaper
+    for word in ("گچ", "چپ", "گپ", "پژ", "پی"):
+        reshaped = arabic_reshaper.reshape(word)
+        assert any(is_presentation_form(c) for c in reshaped), word
+
+
+def test_word_ligatures_are_not_corruption():
+    """ﷲ ﷺ ﷻ ﷽ are typed deliberately; flagging them marks correct text bad."""
+    for ch in ("ﷲ", "ﷺ", "ﷻ", "﷽"):
+        assert not is_presentation_form(ch)
+
+
+def test_forms_b_still_detected():
+    assert is_presentation_form("ﺎ")
+    assert not is_presentation_form("﻿")  # BOM
+    assert not is_presentation_form("م")

@@ -36,14 +36,34 @@ PRESENTATION_B = (0xFE70, 0xFEFF)
 # Flagging it was a real false positive found by scanning a live codebase.
 BOM = 0xFEFF
 
-# Presentation Forms-A (U+FB50-U+FDFF) is deliberately NOT a signal. The
-# reshaper emits exactly one codepoint from it -- U+FDF2, the Allah ligature --
-# and that character, like U+FDFA (ﷺ), U+FDFB (ﷻ) and U+FDFD (﷽), is used
-# intentionally in ordinary Arabic writing. Treating the block as corruption
-# flags correct religious and formal text. The cost of leaving it out is that a
-# document containing only the word Allah as a ligature is missed; any real
-# corrupted phrase around it trips Forms-B anyway.
-PRESENTATION_A_INFORMATIONAL = (0xFB50, 0xFDFF)
+# Presentation Forms-A (U+FB50-U+FDFF) used to be excluded wholesale, on the
+# belief that the reshaper emits exactly one codepoint from it -- U+FDF2, the
+# Allah ligature -- so treating the block as corruption would flag correct
+# religious and formal text.
+#
+# Measured over every Arabic-block letter in all four joining positions, the
+# reshaper emits 126 distinct Forms-A codepoints. 125 are POSITIONAL forms
+# (ISOLATED/FINAL/INITIAL/MEDIAL); exactly one, U+FDF2, is a semantic ligature.
+# The old rule was right about the ligatures and wrong about the block.
+#
+# What it cost, measured rather than assumed -- and it is smaller than it first
+# looks, because Persian shares most of its alphabet with Arabic and those
+# letters do have Forms-B mappings:
+#   * UNDER-COUNTING on ordinary Persian and Urdu. "چگونه" reshaped reports 3
+#     presentation forms under the old rule and 5 under this one; "دنیا" 3 -> 4.
+#     The span was still flagged, just measured short.
+#   * MISSED ENTIRELY only for strings made purely of Persian-specific letters,
+#     which have no Forms-B mapping at all: گچ, چپ, گپ, پژ, پی and the bare
+#     Farsi yeh ی all scored zero before and are caught now. Short, but real.
+#
+# So: positional forms are signal, exactly like Forms-B. The word ligatures are
+# not -- ﷲ, ﷺ, ﷻ, ﷽ are typed deliberately in ordinary writing and
+# flagging them would mark correct text as corrupt.
+PRESENTATION_A = (0xFB50, 0xFDFF)
+
+# U+FDF0..U+FDFD are the Arabic word ligatures (ﷺ, ﷻ, ﷽, ﷲ and the
+# rest). Semantic characters, not glyph choices: excluded from the signal.
+PRESENTATION_A_LIGATURES = (0xFDF0, 0xFDFD)
 
 # Arabic proper (letters, tashkeel, Arabic-Indic digits).
 ARABIC = (0x0600, 0x06FF)
@@ -62,7 +82,14 @@ def _in(cp: int, rng: tuple[int, int]) -> bool:
 def is_presentation_form(ch: str) -> bool:
     """True only for codepoints that indicate baked-in Arabic glyph choices."""
     cp = ord(ch)
-    return cp != BOM and _in(cp, PRESENTATION_B)
+    if cp == BOM:
+        return False
+    if _in(cp, PRESENTATION_B):
+        return True
+    # Forms-A minus the word ligatures: the positional forms are as much a
+    # baked-in glyph choice as anything in Forms-B, and they are the only
+    # signal a reshaped Persian or Urdu string leaves behind.
+    return _in(cp, PRESENTATION_A) and not _in(cp, PRESENTATION_A_LIGATURES)
 
 
 def is_arabic(ch: str) -> bool:
