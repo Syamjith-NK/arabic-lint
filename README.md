@@ -21,10 +21,37 @@ src/strings.json:3:20: 21 Arabic presentation forms stored  [UNSAFE TO AUTO-FIX]
 Exit code 1 when anything is found, so it drops into CI unchanged.
 MIT. **Zero dependencies.** Python 3.9+.
 
-> **Why this exists:** the recipe below is in 1,180 indexed files on GitHub, and on
+> **Why this exists:** the recipe below appears in **~1,160 indexed files on
+> GitHub** (measured 2026-09-04; the figure drifts as GitHub reindexes), and on
 > matplotlib 3.11 it now renders Arabic *backwards* with no error at all.
 > [The Arabic fix everyone recommends is now the bug](https://syamjith-nk.github.io/arabic-reshape-bidi-is-now-the-bug/) — the measurements, and
 > what happened when it was filed against Pillow and matplotlib.
+
+## Check it yourself
+
+Do not take the claim on trust — `verify_mpl311.py` re-measures it on your machine:
+
+```bash
+pip install matplotlib arabic-reshaper python-bidi
+python3 verify_mpl311.py
+```
+
+It renders each test string twice, once as typed and once through the workaround,
+and reports the mean absolute pixel difference against a same-string control. On
+matplotlib 3.11.0 with Pillow 12.2.0 (Raqm enabled) all five strings render
+differently, against a control of exactly `0.000`.
+
+The pixel numbers depend on your font and size, so treat them as a signal rather
+than a constant. The evidence that needs no renderer at all is the codepoint
+count the script also prints:
+
+```
+emirates    8 →  7 codepoints · 7 in the Arabic Presentation Forms block  ← lam-alef decomposed
+```
+
+`الإمارات` loses a codepoint because lam-alef is one codepoint that decomposes
+into two, and every output character lands in a block that typed Arabic never
+contains.
 
 ## What it actually detects
 
