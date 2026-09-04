@@ -21,6 +21,11 @@ src/strings.json:3:20: 21 Arabic presentation forms stored  [UNSAFE TO AUTO-FIX]
 Exit code 1 when anything is found, so it drops into CI unchanged.
 MIT. **Zero dependencies.** Python 3.9+.
 
+> **Why this exists:** the recipe below is in 1,180 indexed files on GitHub, and on
+> matplotlib 3.11 it now renders Arabic *backwards* with no error at all.
+> [The Arabic fix everyone recommends is now the bug](https://syamjith-nk.github.io/arabic-reshape-bidi-is-now-the-bug/) — the measurements, and
+> what happened when it was filed against Pillow and matplotlib.
+
 ## What it actually detects
 
 The most widely copied recipe for "making Arabic work" in Python is:
