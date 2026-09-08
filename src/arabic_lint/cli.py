@@ -4,10 +4,21 @@
     arabic-lint data.json --json
     arabic-lint . --exclude node_modules --exclude .git
 
+Two checks run over a tree:
+
+  * stored corruption  - Arabic presentation forms that were written to disk
+  * source risk        - the reshape+bidi recipe feeding a renderer that already
+                         shapes, which corrupts at render time (Python files only)
+
 Exit codes:
     0  clean
     1  corrupted Arabic found
     2  usage / IO error
+
+The source check is deliberately quiet. It reports only where a shaping renderer is
+imported AND something in the file actually draws with it, so ReportLab, terminal
+output and dead helpers stay silent. Flagging every occurrence of the recipe would
+mean thousands of false positives, and a checker nobody trusts is worse than none.
 """
 
 from __future__ import annotations
@@ -18,6 +29,7 @@ import sys
 from pathlib import Path
 
 from .detect import scan_text
+from .source import scan_source
 
 TEXT_SUFFIXES = {
     ".txt", ".json", ".jsonl", ".csv", ".tsv", ".md", ".yml", ".yaml",
@@ -54,10 +66,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="directory name to skip (repeatable)")
     ap.add_argument("--quiet", "-q", action="store_true",
                     help="only print the summary line")
+    ap.add_argument("--no-source", action="store_true",
+                    help="skip the Python source check, scan stored text only")
     args = ap.parse_args(argv)
 
     excludes = DEFAULT_EXCLUDES | set(args.exclude)
     results: list[dict] = []
+    source_results: list[dict] = []
     scanned = 0
 
     for root in args.paths:
@@ -83,11 +98,24 @@ def main(argv: list[str] | None = None) -> int:
                     "note": f.note,
                 })
 
+            if not args.no_source and path.suffix.lower() == ".py":
+                for sf in scan_source(text).findings:
+                    source_results.append({
+                        "file": str(path),
+                        "line": sf.line,
+                        "col": sf.col,
+                        "sink": sf.sink,
+                        "snippet": sf.snippet,
+                        "reason": sf.reason,
+                        "confidence": sf.confidence,
+                    })
+
     if args.as_json:
-        json.dump({"scanned": scanned, "findings": results}, sys.stdout,
+        json.dump({"scanned": scanned, "findings": results,
+                   "source_findings": source_results}, sys.stdout,
                   ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
-        return 1 if results else 0
+        return 1 if (results or source_results) else 0
 
     if not args.quiet:
         for r in results:
@@ -99,10 +127,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    {r['note']}")
             print()
 
+    if not args.quiet:
+        for r in source_results:
+            print(f"{r['file']}:{r['line']}:{r['col']}: pre-shaped text passed to "
+                  f"{r['sink']}  [RENDERS REVERSED]")
+            print(f"    {r['snippet']}")
+            print(f"    {r['reason']}")
+            print()
+
     unsafe = sum(1 for r in results if not r["safe_to_autofix"])
+    parts = []
     if results:
-        print(f"{len(results)} corrupted span(s) in {scanned} file(s); "
-              f"{unsafe} cannot be auto-fixed safely.")
+        parts.append(f"{len(results)} corrupted span(s); {unsafe} cannot be auto-fixed safely")
+    if source_results:
+        parts.append(f"{len(source_results)} source site(s) that will corrupt at render time")
+    if parts:
+        print("; ".join(parts) + f" — in {scanned} file(s) scanned.")
         return 1
     print(f"clean — {scanned} file(s) scanned, no corrupted Arabic found.")
     return 0

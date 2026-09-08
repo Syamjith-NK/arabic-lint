@@ -21,6 +21,43 @@ src/strings.json:3:20: 21 Arabic presentation forms stored  [UNSAFE TO AUTO-FIX]
 Exit code 1 when anything is found, so it drops into CI unchanged.
 MIT. **Zero dependencies.** Python 3.9+.
 
+## Two checks
+
+**Stored corruption** — Arabic presentation forms that were already written to disk.
+
+**Source risk** (Python files) — the reshape+bidi recipe feeding a renderer that
+already shapes, which corrupts at *render* time before anything is stored:
+
+```
+cogs/bear_track.py:715:16: pre-shaped text passed to matplotlib  [RENDERS REVERSED]
+    return _bidi_get_display(_arabic_reshaper.reshape(text))
+    matplotlib >= 3.11 shapes text with libraqm and applies bidi itself, so this
+    reorders an already-reordered string and the text renders reversed
+```
+
+The recipe appears in **3,168 indexed Python files on GitHub** (measured 2026-09-08),
+and flagging all of them would be worthless, because whether it is a bug depends
+entirely on what draws the text:
+
+| renderer | shapes and reorders? | verdict |
+|---|---|---|
+| matplotlib >= 3.11 | yes | pre-shaping **reverses** the text |
+| Pillow built with Raqm | yes | pre-shaping **reverses** the text |
+| Pillow without Raqm | no | pre-shaping is **required** |
+| ReportLab, fpdf | no | pre-shaping is **required** |
+| `print()` to a terminal | terminal-dependent | not this tool's call |
+
+So the source check stays silent unless a shaping renderer is imported *and*
+something in the file actually draws with it. It also follows import aliases, follows
+the recipe when `reshape()` and `get_display()` are on separate lines, names the
+renderer that actually draws rather than the first one imported, and ignores a
+pre-shaping helper that a script never calls.
+
+Validated against six real repositories found by code search: it flags the three that
+are genuinely broken, and stays silent on a ReportLab project, a dead helper in an
+unrelated benchmark, and a script that only prints to a terminal. Pass `--no-source`
+to turn it off.
+
 > **Why this exists:** the recipe below appears in **~1,160 indexed files on
 > GitHub** (measured 2026-09-04; the figure drifts as GitHub reindexes), and on
 > matplotlib 3.11 it now renders Arabic *backwards* with no error at all.
