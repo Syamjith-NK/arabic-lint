@@ -61,6 +61,10 @@ class SourceFinding:
     sink: str          # "matplotlib" | "PIL" | "unknown"
     reason: str
     confidence: str    # "high" | "conditional"
+    fix: str | None = None        # replacement source for this expression, if safe
+    unfixable_why: str | None = None
+    end_line: int = 0             # full span of the call, for applying the rewrite
+    end_col: int = 0
 
     def format(self, path: str) -> str:
         head = f"{path}:{self.line}:{self.col}: pre-shaped text passed to {self.sink}"
@@ -257,6 +261,7 @@ def scan_source(text: str) -> SourceReport:
         sink = shaping[0]
 
     for call in live_calls:
+        fix, why = _plan_fix(call, v, text)
         report.findings.append(
             SourceFinding(
                 line=call.lineno,
@@ -268,9 +273,51 @@ def scan_source(text: str) -> SourceReport:
                 # Neither condition is knowable from source alone: the installed
                 # matplotlib version, and whether Pillow was built with Raqm.
                 confidence="conditional",
+                fix=fix,
+                unfixable_why=why,
+                end_line=getattr(call, "end_lineno", call.lineno),
+                end_col=getattr(call, "end_col_offset", 0) + 1,
             )
         )
     return report
+
+
+def _plan_fix(call: ast.Call, v: "_Visitor", text: str) -> tuple[str | None, str | None]:
+    """Can this one call be rewritten mechanically, and if not, why not?
+
+    Safe:   get_display(reshape(EXPR))   ->   EXPR
+            Both halves of the recipe are inside this expression, so removing the
+            expression removes the whole recipe. Nothing else refers to the result.
+
+    NOT safe:  reshaped = reshape(x)  /  out = get_display(reshaped)
+            Rewriting the second line to `out = reshaped` deletes the bidi half and
+            LEAVES the shaping half applied. That is still wrong, and it is wrong in
+            a way that looks fixed. The two lines have to go together, and which
+            other code reads `reshaped` is not knowable from this expression.
+    """
+    if len(call.args) != 1:
+        return None, "the call does not take exactly one argument"
+    arg = call.args[0]
+
+    # split-statement form: the argument is a variable assigned from reshape()
+    if isinstance(arg, ast.Name) and arg.id in v.reshaped_vars:
+        return None, (f"reshape() is applied on an earlier line to `{arg.id}`. Removing only "
+                      "this call would leave the text shaped but not reordered, which is still "
+                      "wrong. Delete both lines and pass the original string.")
+
+    inner = arg if isinstance(arg, ast.Call) and _callee(arg) in v.reshape_names else None
+    if inner is None:
+        return None, "the argument is not a direct reshape() call"
+    if len(inner.args) != 1:
+        return None, "reshape() does not take exactly one argument"
+
+    try:
+        replacement = ast.get_source_segment(text, inner.args[0])
+    except Exception:
+        replacement = None
+    if not replacement:
+        return None, "could not recover the original expression text"
+    return replacement, None
 
 
 def _is_script(tree: ast.AST) -> bool:
@@ -299,3 +346,27 @@ def _enclosing_func(tree: ast.AST, target: ast.AST) -> str | None:
                 if sub is target:
                     return node.name
     return None
+
+
+def apply_fixes(text: str, findings: list[SourceFinding]) -> tuple[str, int]:
+    """Rewrite the fixable findings in one file. Returns (new_text, count).
+
+    Applied last-first so that an earlier rewrite never shifts the offsets of one
+    still to come. Findings without a fix are left strictly alone.
+    """
+    lines = text.splitlines(keepends=True)
+    starts, pos = [], 0
+    for ln in lines:
+        starts.append(pos)
+        pos += len(ln)
+
+    def offset(line: int, col: int) -> int:
+        return starts[line - 1] + (col - 1)
+
+    todo = [f for f in findings if f.fix]
+    todo.sort(key=lambda f: (f.line, f.col), reverse=True)
+    out = text
+    for f in todo:
+        a, b = offset(f.line, f.col), offset(f.end_line, f.end_col)
+        out = out[:a] + f.fix + out[b:]
+    return out, len(todo)

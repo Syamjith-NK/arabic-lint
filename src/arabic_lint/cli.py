@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 from .detect import scan_text
-from .source import scan_source
+from .source import scan_source, apply_fixes
 from .doctor import report as doctor_report
 
 TEXT_SUFFIXES = {
@@ -71,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="only print the summary line")
     ap.add_argument("--no-source", action="store_true",
                     help="skip the Python source check, scan stored text only")
+    ap.add_argument("--fix", action="store_true",
+                    help="rewrite the source findings that can be fixed mechanically. "
+                         "Never touches stored text, which cannot be repaired safely.")
     args = ap.parse_args(argv)
 
     if args.doctor:
@@ -84,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     excludes = DEFAULT_EXCLUDES | set(args.exclude)
     results: list[dict] = []
     source_results: list[dict] = []
+    fixed_files: list[tuple[str, int]] = []
     scanned = 0
 
     for root in args.paths:
@@ -110,7 +114,18 @@ def main(argv: list[str] | None = None) -> int:
                 })
 
             if not args.no_source and path.suffix.lower() == ".py":
-                for sf in scan_source(text).findings:
+                sreport = scan_source(text)
+                if args.fix and any(f.fix for f in sreport.findings):
+                    new_text, n = apply_fixes(text, sreport.findings)
+                    try:
+                        compile(new_text, str(path), "exec")
+                    except SyntaxError as exc:
+                        print(f"arabic-lint: refusing to write {path}: the rewrite "
+                              f"would not parse ({exc.msg})", file=sys.stderr)
+                    else:
+                        path.write_text(new_text, encoding="utf-8")
+                        fixed_files.append((str(path), n))
+                for sf in sreport.findings:
                     source_results.append({
                         "file": str(path),
                         "line": sf.line,
@@ -119,11 +134,14 @@ def main(argv: list[str] | None = None) -> int:
                         "snippet": sf.snippet,
                         "reason": sf.reason,
                         "confidence": sf.confidence,
+                        "fixable": bool(sf.fix),
+                        "unfixable_why": sf.unfixable_why,
                     })
 
     if args.as_json:
         json.dump({"scanned": scanned, "findings": results,
-                   "source_findings": source_results}, sys.stdout,
+                   "source_findings": source_results,
+                   "fixed": [{"file": f, "calls": n} for f, n in fixed_files]}, sys.stdout,
                   ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
         return 1 if (results or source_results) else 0
@@ -144,17 +162,31 @@ def main(argv: list[str] | None = None) -> int:
                   f"{r['sink']}  [RENDERS REVERSED]")
             print(f"    {r['snippet']}")
             print(f"    {r['reason']}")
+            if r["unfixable_why"]:
+                print(f"    NOT auto-fixable: {r['unfixable_why']}")
+            elif not args.fix:
+                print("    fixable: run again with --fix")
             print()
+
+    if fixed_files:
+        for path, n in fixed_files:
+            print(f"fixed {n} call(s) in {path}")
+        print()
 
     unsafe = sum(1 for r in results if not r["safe_to_autofix"])
     parts = []
     if results:
         parts.append(f"{len(results)} corrupted span(s); {unsafe} cannot be auto-fixed safely")
-    if source_results:
-        parts.append(f"{len(source_results)} source site(s) that will corrupt at render time")
+    remaining = [r for r in source_results if not (args.fix and r["fixable"])]
+    if remaining:
+        parts.append(f"{len(remaining)} source site(s) that will corrupt at render time"
+                     + (" and could not be fixed mechanically" if args.fix else ""))
     if parts:
         print("; ".join(parts) + f" — in {scanned} file(s) scanned.")
         return 1
+    if fixed_files:
+        print(f"all source findings fixed — {scanned} file(s) scanned.")
+        return 0
     print(f"clean — {scanned} file(s) scanned, no corrupted Arabic found.")
     return 0
 

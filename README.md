@@ -86,6 +86,39 @@ are genuinely broken, and stays silent on a ReportLab project, a dead helper in 
 unrelated benchmark, and a script that only prints to a terminal. Pass `--no-source`
 to turn it off.
 
+## `--fix`, and why it exists here but not for stored text
+
+The same package refuses to repair one kind of damage and offers to repair the other,
+which sounds inconsistent until you look at what each one is.
+
+**Stored corruption is not safely repairable.** Undoing it round-trips exactly until the
+text contains a lam-alef ligature, and then <span dir="rtl">السلام</span> comes back as
+<span dir="rtl">السالم</span>: a real word, a different word, one that survives a
+proofread. So the stored check reports and never rewrites.
+
+**Source is the opposite.** Where the whole recipe sits inside one expression, deleting
+it is exactly correct:
+
+```diff
+- return get_display(arabic_reshaper.reshape(text))
++ return text
+```
+
+`arabic-lint . --fix` makes that edit in place, then refuses to write if the result
+would not parse.
+
+It does **not** touch the split form:
+
+```python
+reshaped  = arabic_reshaper.reshape(segment)
+processed = get_display(reshaped)        # NOT auto-fixable
+```
+
+Rewriting the second line to `processed = reshaped` would remove the reordering and
+leave the shaping applied. That is still wrong, and wrong in a way that looks fixed.
+Both lines have to go, and which other code reads `reshaped` is not knowable from that
+expression. So it says so and leaves the file alone.
+
 > **Why this exists:** the recipe below appears in **~1,160 indexed files on
 > GitHub** (measured 2026-09-04; the figure drifts as GitHub reindexes), and on
 > matplotlib 3.11 it now renders Arabic *backwards* with no error at all.

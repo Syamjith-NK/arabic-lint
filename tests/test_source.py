@@ -135,3 +135,54 @@ def test_unparseable_file_is_skipped_not_crashed():
 def test_clean_file_says_nothing():
     r = scan_source("import matplotlib.pyplot as plt\nplt.title('hello')\n")
     assert r.findings == [] and r.skipped == []
+
+
+# --- automatic rewriting -------------------------------------------------------
+#
+# The asymmetry here is the point of the whole package. Stored corruption can never
+# be repaired safely, because lam-alef decomposition produces a real but different
+# word. Source is the opposite: where the whole recipe sits inside one expression,
+# deleting it is exactly correct and provably so.
+
+from arabic_lint.source import apply_fixes
+import ast
+
+
+def test_a_single_expression_is_rewritten_to_the_original_string():
+    r = scan_source(MPL_BUG)
+    assert r.findings[0].fix == '"مرحبا"' or r.findings[0].fix == "text"
+    new, n = apply_fixes(MPL_BUG, r.findings)
+    assert n == 1
+    ast.parse(new)                       # the rewrite must still be valid Python
+    assert "get_display" not in new.split("def arab")[1].split("\n")[1]
+    assert not scan_source(new).findings  # and must actually clear the finding
+
+
+def test_the_aliased_form_is_rewritten_too():
+    r = scan_source(ALIASED)
+    new, n = apply_fixes(ALIASED, r.findings)
+    assert n == 1
+    ast.parse(new)
+    assert not scan_source(new).findings
+
+
+def test_the_split_form_is_REFUSED_and_says_why():
+    """Rewriting only the get_display() call would leave reshape() applied.
+
+    That is still broken, and broken in a way that looks fixed, which is worse than
+    leaving it alone.
+    """
+    r = scan_source(SPLIT_STATEMENTS)
+    f = r.findings[0]
+    assert f.fix is None
+    assert "earlier line" in f.unfixable_why
+    new, n = apply_fixes(SPLIT_STATEMENTS, r.findings)
+    assert n == 0
+    assert new == SPLIT_STATEMENTS       # not one byte touched
+
+
+def test_nothing_is_rewritten_where_there_is_no_finding():
+    for src in (REPORTLAB_OK, DEAD_HELPER, PRINT_ONLY):
+        r = scan_source(src)
+        new, n = apply_fixes(src, r.findings)
+        assert n == 0 and new == src
