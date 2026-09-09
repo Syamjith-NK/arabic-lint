@@ -30,6 +30,7 @@ from pathlib import Path
 
 from .detect import scan_text
 from .source import scan_source
+from .doctor import report as doctor_report
 
 TEXT_SUFFIXES = {
     ".txt", ".json", ".jsonl", ".csv", ".tsv", ".md", ".yml", ".yaml",
@@ -59,7 +60,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="arabic-lint",
         description="Find Arabic text corrupted by reshape+bidi before storage.",
     )
-    ap.add_argument("paths", nargs="+", type=Path)
+    ap.add_argument("paths", nargs="*", type=Path)
+    ap.add_argument("--doctor", action="store_true",
+                    help="report what THIS environment does with pre-shaped Arabic, and exit")
     ap.add_argument("--json", action="store_true", dest="as_json",
                     help="machine-readable output")
     ap.add_argument("--exclude", action="append", default=[],
@@ -69,6 +72,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-source", action="store_true",
                     help="skip the Python source check, scan stored text only")
     args = ap.parse_args(argv)
+
+    if args.doctor:
+        lines, _ = doctor_report()
+        print("\n".join(lines))
+        return 0
+
+    if not args.paths:
+        ap.error("give at least one path, or use --doctor")
 
     excludes = DEFAULT_EXCLUDES | set(args.exclude)
     results: list[dict] = []

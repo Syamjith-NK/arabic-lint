@@ -21,6 +21,34 @@ src/strings.json:3:20: 21 Arabic presentation forms stored  [UNSAFE TO AUTO-FIX]
 Exit code 1 when anything is found, so it drops into CI unchanged.
 MIT. **Zero dependencies.** Python 3.9+.
 
+## Which case are you in?
+
+The findings below all depend on what draws your text, and that is not knowable by
+reading code: it depends on your installed matplotlib version and on whether your
+Pillow was built with Raqm, which is a property of the wheel rather than the version.
+
+```bash
+arabic-lint --doctor
+```
+
+```
+  matplotlib 3.11.0
+      pre-shaping BREAKS text here
+      3.11 and later shape text with libraqm and apply bidi themselves
+
+  Pillow 12.2.0
+      pre-shaping BREAKS text here
+      this build has Raqm, so ImageDraw.text() shapes and reorders for you. Note
+      this is a property of the BUILD: the same version on another machine can
+      answer differently
+
+Verdict: on matplotlib and Pillow, remove the reshape/bidi step and pass the
+logical string straight through. Leaving it in reverses the text, silently.
+```
+
+If one renderer shapes and the other does not, it says so, because then a single
+shared helper cannot be correct for both.
+
 ## Two checks
 
 **Stored corruption** — Arabic presentation forms that were already written to disk.
