@@ -49,6 +49,23 @@ logical string straight through. Leaving it in reverses the text, silently.
 If one renderer shapes and the other does not, it says so, because then a single
 shared helper cannot be correct for both.
 
+## What counts as corruption, and what does not
+
+Arabic Presentation Forms-A is **interleaved**: positional glyph forms and ordinary
+semantic characters share the same block. The ornate parentheses ﴾ ﴿ that enclose a
+Quranic quotation live at U+FD3E/U+FD3F, in the middle of it, and honorific ligatures
+like ﵀ sit just above them. Those are characters people type on purpose.
+
+Treating the whole block as a corruption signal reports Islamic heritage text as
+broken. Measured against public corpora on Hugging Face on 9 September 2026, the
+naive rule flagged **35.6%** of one heritage OCR corpus and **5.5%** of another. Every
+hit was a Quranic quotation mark or an honorific. With the block classified properly,
+both read **0%**.
+
+So the classification is derived rather than tabulated: a contextual shaping artefact
+is exactly a codepoint Unicode names `... ISOLATED/INITIAL/MEDIAL/FINAL FORM`.
+Anything else in the block is deliberate. New Unicode additions classify themselves.
+
 ## Two checks
 
 **Stored corruption** — Arabic presentation forms that were already written to disk.

@@ -128,3 +128,40 @@ def test_forms_b_still_detected():
     assert is_presentation_form("ﺎ")
     assert not is_presentation_form("﻿")  # BOM
     assert not is_presentation_form("م")
+
+
+# --- Forms-A is interleaved, and getting that wrong accuses correct text ---------
+#
+# Measured against public Arabic corpora on Hugging Face 2026-09-09: treating the
+# whole of Forms-A as signal reported 35.6% of one Islamic heritage OCR corpus as
+# corrupted. Every hit was an ornate parenthesis around a Quranic quotation or an
+# honorific ligature. Heritage text is a large share of Arabic training data, so
+# this was a whole category the tool was confidently wrong about.
+
+def test_ornate_parentheses_are_not_corruption():
+    """﴾ ﴿ enclose a Quranic quotation. Deliberate, and everywhere in heritage text."""
+    assert not is_presentation_form("﴾")
+    assert not is_presentation_form("﴿")
+    assert scan_text("قال تعالى ﴾ إنا أعطيناك الكوثر ﴿").findings == []
+
+
+def test_honorific_ligatures_are_not_corruption():
+    for cp in ("﵀", "﵊", "﷏", "ﷺ", "﷽"):
+        assert not is_presentation_form(cp), f"U+{ord(cp):04X} wrongly flagged"
+
+
+def test_positional_forms_in_the_same_block_are_still_caught():
+    """The fix must not blunt the signal it was built for."""
+    assert is_presentation_form("ﭐ")      # ALEF WASLA ISOLATED FORM
+    assert is_presentation_form("ﯓ")      # NG ISOLATED FORM
+    assert is_presentation_form("ﵐ")      # TEH JEEM MEEM INITIAL FORM
+
+
+def test_the_classification_is_derived_not_tabulated():
+    """Every flagged Forms-A codepoint is one Unicode names as a positional form."""
+    import unicodedata
+    from arabic_lint.detect import _SHAPING_A
+    assert len(_SHAPING_A) > 500
+    for cp in _SHAPING_A:
+        assert unicodedata.name(chr(cp)).endswith(
+            (" ISOLATED FORM", " INITIAL FORM", " MEDIAL FORM", " FINAL FORM"))

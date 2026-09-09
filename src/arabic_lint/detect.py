@@ -63,7 +63,43 @@ PRESENTATION_A = (0xFB50, 0xFDFF)
 
 # U+FDF0..U+FDFD are the Arabic word ligatures (ﷺ, ﷻ, ﷽, ﷲ and the
 # rest). Semantic characters, not glyph choices: excluded from the signal.
+#
+# They are NOT the only ones, which a range-based exclusion cannot express because
+# Forms-A is interleaved:
+#
+#     FB50..FBB1  positional forms      signal
+#     FBB2..FBD2  Arabic symbols        SEMANTIC
+#     FBD3..FD3D  positional forms      signal
+#     FD3E..FD4F  ornate parentheses ﴾ ﴿ and honorific ligatures ﵀ ﵊   SEMANTIC
+#     FD50..FDCE  positional forms      signal
+#     FDCF        ARABIC LIGATURE SALAAMUHU ALAYNAA                    SEMANTIC
+#     FDF0..FDFD  word ligatures                                       SEMANTIC
+#
+# Measured 2026-09-09 against public Arabic corpora on Hugging Face: treating all of
+# Forms-A as signal reported 35.6% of `synth_shamela_ocr_arabic_books` and 5.5% of
+# `arabic-turath-ocr` as corrupted. Every one of those was ﴾ ﴿ around a Quranic
+# quotation, or an honorific. Islamic heritage text is a large share of all Arabic
+# training data, so this was not a rare edge: on that whole category the tool was
+# wrong, loudly, and in the direction that produces a false accusation.
+#
+# The rule is derivable rather than tabulated. A contextual shaping artefact is
+# exactly a character Unicode names "... ISOLATED/INITIAL/MEDIAL/FINAL FORM";
+# anything else in the block is a character somebody typed on purpose. Deriving it
+# from the name means new Unicode additions classify themselves.
 PRESENTATION_A_LIGATURES = (0xFDF0, 0xFDFD)
+
+def _shaping_forms_in_A() -> frozenset:
+    import unicodedata
+    out = set()
+    for cp in range(PRESENTATION_A[0], PRESENTATION_A[1] + 1):
+        try:
+            name = unicodedata.name(chr(cp))
+        except ValueError:            # unassigned, or a noncharacter
+            continue
+        if name.endswith((" ISOLATED FORM", " INITIAL FORM",
+                          " MEDIAL FORM", " FINAL FORM")):
+            out.add(cp)
+    return frozenset(out)
 
 # Arabic proper (letters, tashkeel, Arabic-Indic digits).
 ARABIC = (0x0600, 0x06FF)
@@ -75,8 +111,14 @@ ARABIC = (0x0600, 0x06FF)
 LAM_ALEF = frozenset(range(0xFEF5, 0xFEFD))  # U+FEF5..U+FEFC
 
 
+_SHAPING_A: frozenset = frozenset()   # filled in below, once
+
+
 def _in(cp: int, rng: tuple[int, int]) -> bool:
     return rng[0] <= cp <= rng[1]
+
+
+_SHAPING_A = _shaping_forms_in_A()
 
 
 def is_presentation_form(ch: str) -> bool:
@@ -86,10 +128,15 @@ def is_presentation_form(ch: str) -> bool:
         return False
     if _in(cp, PRESENTATION_B):
         return True
-    # Forms-A minus the word ligatures: the positional forms are as much a
-    # baked-in glyph choice as anything in Forms-B, and they are the only
-    # signal a reshaped Persian or Urdu string leaves behind.
-    return _in(cp, PRESENTATION_A) and not _in(cp, PRESENTATION_A_LIGATURES)
+    # Forms-A: only the positional forms. They are as much a baked-in glyph
+    # choice as anything in Forms-B, and they are the only signal a reshaped
+    # Persian or Urdu string leaves behind. The semantic characters scattered
+    # through the same block are not signal and must never be flagged.
+    if not _in(cp, PRESENTATION_A):
+        return False
+    if _in(cp, PRESENTATION_A_LIGATURES):
+        return False              # word ligatures, incl. the Koranic stop signs
+    return cp in _SHAPING_A
 
 
 def is_arabic(ch: str) -> bool:
