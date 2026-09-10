@@ -165,3 +165,43 @@ def test_the_classification_is_derived_not_tabulated():
     for cp in _SHAPING_A:
         assert unicodedata.name(chr(cp)).endswith(
             (" ISOLATED FORM", " INITIAL FORM", " MEDIAL FORM", " FINAL FORM"))
+
+
+# --- severity ------------------------------------------------------------------
+#
+# Grounded in the corpus audit rather than invented: across 276 public Arabic
+# datasets, 361 of 363 findings were a single stray presentation form and exactly
+# one dataset carried long runs. Those are different problems and must not produce
+# the same alarm, or the alarm gets switched off.
+
+from arabic_lint.detect import severity_of, SEVERITY_ORDER, SEVERITY_ADVICE
+
+
+def test_severity_boundaries():
+    assert severity_of(1) == "stray"
+    assert severity_of(2) == "partial"
+    assert severity_of(4) == "partial"
+    assert severity_of(5) == "reshaped"
+    assert severity_of(29) == "reshaped"
+
+
+def test_severity_order_is_ascending():
+    assert SEVERITY_ORDER == ("stray", "partial", "reshaped")
+    assert all(s in SEVERITY_ADVICE for s in SEVERITY_ORDER)
+
+
+def test_a_full_recipe_run_is_reshaped_not_stray():
+    """The real thing: a whole string through reshape+bidi."""
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    corrupted = get_display(arabic_reshaper.reshape("الإمارات العربية المتحدة"))
+    f = scan_text(corrupted).findings[0]
+    assert f.severity == "reshaped"
+    assert "pipeline that wrote this file" in f.advice
+
+
+def test_one_pasted_glyph_is_stray_and_the_advice_says_so():
+    """A single ﺑ in correct text is a character to fix, not a pipeline to audit."""
+    f = scan_text("هذا نص عربي سليم فيه ﺑ حرف واحد").findings[0]
+    assert f.severity == "stray"
+    assert "Fix the character, not the pipeline" in f.advice

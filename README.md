@@ -43,6 +43,26 @@ The audit ships its own scanner, so the numbers are re-derivable rather than tru
 also documents a false positive this tool used to produce against Islamic heritage text,
 which is worth reading before you point any such tool at someone else's corpus.
 
+## Severity: one pasted glyph is not a destroyed corpus
+
+The [audit](https://huggingface.co/datasets/syamjithnk/arabic-corpus-audit) settled this
+empirically. Across 276 public Arabic datasets, **361 of 363 findings were a single stray
+presentation form** in otherwise correct text, and exactly one dataset carried long runs.
+Those are different problems:
+
+| severity | forms | what it means | what to do |
+|---|---|---|---|
+| `stray` | 1 | pasted from a PDF, or OCR residue | fix the character |
+| `partial` | 2–4 | a fragment, or a short pass through the recipe | check where the text came from |
+| `reshaped` | 5+ | reshape+bidi ran before this was stored | **audit the pipeline**, not the file |
+
+Reporting them identically means a team with one stray glyph in ten thousand rows gets the
+same alarm as a team whose corpus was destroyed, and then they switch the alarm off.
+
+```bash
+arabic-lint . --min-severity reshaped     # fail CI only on pipeline damage
+```
+
 ## Which case are you in?
 
 The findings below all depend on what draws your text, and that is not knowable by

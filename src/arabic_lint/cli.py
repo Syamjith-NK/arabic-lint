@@ -28,7 +28,7 @@ import json
 import sys
 from pathlib import Path
 
-from .detect import scan_text
+from .detect import scan_text, SEVERITY_ORDER
 from .source import scan_source, apply_fixes
 from .doctor import report as doctor_report
 
@@ -69,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="directory name to skip (repeatable)")
     ap.add_argument("--quiet", "-q", action="store_true",
                     help="only print the summary line")
+    ap.add_argument("--min-severity", choices=SEVERITY_ORDER, default="stray",
+                    help="only report stored findings at this severity or above. "
+                         "'reshaped' gates CI on pipeline damage while tolerating the odd "
+                         "pasted glyph (default: stray, i.e. report everything)")
     ap.add_argument("--no-source", action="store_true",
                     help="skip the Python source check, scan stored text only")
     ap.add_argument("--fix", action="store_true",
@@ -101,7 +105,10 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             scanned += 1
             report = scan_text(text)
+            floor = SEVERITY_ORDER.index(args.min_severity)
             for f in report.findings:
+                if SEVERITY_ORDER.index(f.severity) < floor:
+                    continue
                 results.append({
                     "file": str(path),
                     "line": f.line,
@@ -111,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
                     "recovered": f.recovered,
                     "safe_to_autofix": f.recoverable,
                     "note": f.note,
+                    "severity": f.severity,
+                    "advice": f.advice,
                 })
 
             if not args.no_source and path.suffix.lower() == ".py":
@@ -150,9 +159,11 @@ def main(argv: list[str] | None = None) -> int:
         for r in results:
             flag = "" if r["safe_to_autofix"] else "  [UNSAFE TO AUTO-FIX]"
             print(f"{r['file']}:{r['line']}:{r['col']}: "
-                  f"{r['presentation_forms']} Arabic presentation forms stored{flag}")
+                  f"{r['presentation_forms']} Arabic presentation forms stored "
+                  f"[{r['severity']}]{flag}")
             print(f"    found     : {r['text']}")
             print(f"    would be  : {r['recovered']}")
+            print(f"    {r['advice']}")
             print(f"    {r['note']}")
             print()
 
@@ -176,7 +187,11 @@ def main(argv: list[str] | None = None) -> int:
     unsafe = sum(1 for r in results if not r["safe_to_autofix"])
     parts = []
     if results:
-        parts.append(f"{len(results)} corrupted span(s); {unsafe} cannot be auto-fixed safely")
+        import collections
+        by = collections.Counter(r["severity"] for r in results)
+        breakdown = ", ".join(f"{by[s]} {s}" for s in SEVERITY_ORDER if by[s])
+        parts.append(f"{len(results)} corrupted span(s) ({breakdown}); "
+                     f"{unsafe} cannot be auto-fixed safely")
     remaining = [r for r in source_results if not (args.fix and r["fixable"])]
     if remaining:
         parts.append(f"{len(remaining)} source site(s) that will corrupt at render time"

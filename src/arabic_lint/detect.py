@@ -148,6 +148,46 @@ def has_lam_alef(text: str) -> bool:
     return any(ord(c) in LAM_ALEF for c in text)
 
 
+# Severity, and why it is not decoration.
+#
+# Measured across 276 public Arabic datasets (see the corpus audit): 361 of 363 findings
+# were a SINGLE presentation form sitting in otherwise correct text, and exactly one
+# dataset carried long runs. Those two are different problems with different causes and
+# different fixes, and reporting them identically is actively unhelpful:
+#
+#   stray     one glyph, pasted out of a PDF or left by OCR. Fix that character.
+#   partial   a few. Usually the same, sometimes a fragment that went through the recipe.
+#   reshaped  a long run: reshape+bidi ran over this text before it was stored. The file
+#             is not the problem, the pipeline that wrote it is, and every other file it
+#             touched needs checking too.
+#
+# A team with one stray glyph in ten thousand rows should not get the same alarm as a team
+# whose corpus was destroyed, or they will switch the alarm off.
+STRAY_MAX = 1
+PARTIAL_MAX = 4
+
+
+def severity_of(n_presentation: int) -> str:
+    if n_presentation <= STRAY_MAX:
+        return "stray"
+    if n_presentation <= PARTIAL_MAX:
+        return "partial"
+    return "reshaped"
+
+
+SEVERITY_ADVICE = {
+    "stray": "a single presentation form in otherwise correct text: usually pasted from a "
+             "PDF or left by OCR. Fix the character, not the pipeline.",
+    "partial": "a short run of presentation forms. Check whether this text passed through "
+               "reshape+bidi, or whether a fragment was pasted in.",
+    "reshaped": "a long run of presentation forms: reshape+bidi ran over this text before it "
+                "was stored. The pipeline that wrote this file is the problem, and every "
+                "other file it touched needs checking.",
+}
+
+SEVERITY_ORDER = ("stray", "partial", "reshaped")
+
+
 @dataclass
 class Finding:
     """One corrupted span."""
@@ -160,9 +200,18 @@ class Finding:
     recovered: str | None = None
     note: str = ""
 
+    @property
+    def severity(self) -> str:
+        return severity_of(self.n_presentation)
+
+    @property
+    def advice(self) -> str:
+        return SEVERITY_ADVICE[self.severity]
+
     def __str__(self) -> str:
         status = "recoverable" if self.recoverable else "UNSAFE to auto-fix"
-        return f"{self.line}:{self.col}: {self.n_presentation} presentation forms ({status})"
+        return (f"{self.line}:{self.col}: {self.n_presentation} presentation forms "
+                f"[{self.severity}] ({status})")
 
 
 @dataclass
