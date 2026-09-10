@@ -21,6 +21,28 @@ src/strings.json:3:20: 21 Arabic presentation forms stored  [UNSAFE TO AUTO-FIX]
 Exit code 1 when anything is found, so it drops into CI unchanged.
 MIT. **Zero dependencies.** Python 3.9+.
 
+## Does this actually happen in the wild?
+
+Yes, and here is the measurement rather than the assertion.
+
+**[syamjithnk/arabic-corpus-audit](https://huggingface.co/datasets/syamjithnk/arabic-corpus-audit)**
+— 341 public Arabic datasets on the Hugging Face Hub, 276 readable, 26,318 rows,
+119,517 text fields, scanned with this tool.
+
+- **1 dataset is 100% corrupted.** `Yousefmd/arabic_ocr_dataset`: 400 of 400 fields, 23 to
+  29 presentation forms per label, INITIAL/MEDIAL/FINAL/ISOLATED forms together and the
+  words in reversed order. It is an OCR set, so the corrupted field is the **ground-truth
+  label** — a model trained on it learns to emit presentation forms in visual order.
+  (Its scale, stated plainly: 17 downloads. This proves the mechanism reaches training
+  data; it is not evidence that widely-used corpora are affected.)
+- **20 more** had single stray presentation forms, no reshaped runs. Still wrong, since a
+  tokenizer treats `ﺑ` and `ب` as different tokens, but a much smaller defect.
+- Everything else was clean.
+
+The audit ships its own scanner, so the numbers are re-derivable rather than trusted. It
+also documents a false positive this tool used to produce against Islamic heritage text,
+which is worth reading before you point any such tool at someone else's corpus.
+
 ## Which case are you in?
 
 The findings below all depend on what draws your text, and that is not knowable by
