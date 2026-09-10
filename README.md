@@ -36,7 +36,11 @@ Yes, and here is the measurement rather than the assertion.
   (Its scale, stated plainly: 17 downloads. This proves the mechanism reaches training
   data; it is not evidence that widely-used corpora are affected.)
 - **20 more** had single stray presentation forms, no reshaped runs. Still wrong, since a
-  tokenizer treats `ﺑ` and `ب` as different tokens, but a much smaller defect.
+  word becomes `[UNK]` on a tokenizer that does not normalise Unicode. Measured on four
+  real vocabularies: **AraBERT v02 and mBERT replace the word with `[UNK]` 6 times out of
+  6**, so every character of meaning is discarded before the model sees it. One corrupted
+  letter out of four is enough. XLM-R normalises and is unaffected. A smaller defect than
+  a reshaped corpus, but not a cosmetic one.
 - Everything else was clean.
 
 The audit ships its own scanner, so the numbers are re-derivable rather than trusted. It
