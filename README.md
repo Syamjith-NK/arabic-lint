@@ -393,7 +393,8 @@ definite article followed by alef is one of the most common sequences in the
 language, so this is not a corner case.
 
 `arabic-lint` shows you the candidate recovery and tells you when it is unsafe.
-It never rewrites your files.
+It never rewrites stored text: `--fix` applies to source findings only, and refuses
+even there when the two halves of the recipe are split across separate lines.
 
 ## Verification
 
