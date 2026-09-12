@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Python the package claims to support, and a current one.
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e ".[test]"
+      - run: pytest -q
+
+      - name: the package itself must have no runtime dependencies
+        # The zero-dependency promise is load-bearing, and a stray entry in
+        # [project.dependencies] would not fail any test. This is what catches it:
+        # every declared requirement has to belong to an extra.
+        run: |
+          python - <<'PY'
+          from importlib.metadata import requires
+          runtime = [r for r in (requires("arabic-lint") or []) if "extra ==" not in r]
+          assert not runtime, f"arabic-lint grew runtime dependencies: {runtime}"
+          print("runtime dependencies:", runtime or "none")
+          PY
+
+  action:
+    # Runs the composite action in this repository against known-clean and
+    # known-corrupted fixtures. A green tick here means the action was executed, not
+    # that its YAML parsed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: passes on clean Arabic
+        uses: ./
+        with:
+          path: .github/fixtures/clean
+
+      - name: fails on a corrupted file
+        id: corrupted
+        continue-on-error: true
+        uses: ./
+        with:
+          path: demo
+
+      - name: that failure is the assertion
+        env:
+          OUTCOME: ${{ steps.corrupted.outcome }}
+        run: |
+          set -euo pipefail
+          test "$OUTCOME" = "failure"
+          echo "the action exits non-zero on corrupted Arabic, as a CI gate must"
+
+      - name: a single stray glyph does not fail the default gate
+        # The whole reason the default is `reshaped`: a hook or job that fires on one
+        # pasted character gets switched off within a day.
+        uses: ./
+        with:
+          path: .github/fixtures/stray
