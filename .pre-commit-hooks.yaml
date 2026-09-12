@@ -1,0 +1,33 @@
+# Hook definitions for https://pre-commit.com
+#
+# The default gate is deliberately `reshaped`, not `stray`. A single presentation form
+# in one file is usually a glyph pasted out of a PDF: worth fixing, not worth blocking a
+# commit over. Measured across 276 public Arabic datasets, 361 of 363 findings were a
+# single stray form, so a hook that failed on those would fail nearly every repository
+# that contains any Arabic at all, and a hook that fires on the first day is removed on
+# the second. `reshaped` fires when a run of five or more forms says the text went
+# through reshape+bidi before it was stored, which is a pipeline defect rather than a
+# typo.
+#
+# Note that the severity gate applies to STORED text. A source finding, the reshape+bidi
+# recipe feeding a renderer that already shapes, is always reported: it is not graded by
+# severity, and the check is quiet by design.
+
+- id: arabic-lint
+  name: arabic-lint
+  description: >-
+    Find Arabic text corrupted by reshape+bidi before it was stored, and the Python
+    source that will corrupt it at render time. Fails on reshaped runs, not on a
+    single stray glyph.
+  entry: arabic-lint --min-severity reshaped
+  language: python
+  types: [text]
+
+- id: arabic-lint-strict
+  name: arabic-lint (report every presentation form)
+  description: >-
+    Same checks, but fails on a single stray presentation form as well. For projects
+    that ship Arabic content and want every pasted glyph caught.
+  entry: arabic-lint --min-severity stray
+  language: python
+  types: [text]

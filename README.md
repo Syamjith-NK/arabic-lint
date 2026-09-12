@@ -76,6 +76,71 @@ same alarm as a team whose corpus was destroyed, and then they switch the alarm 
 arabic-lint . --min-severity reshaped     # fail CI only on pipeline damage
 ```
 
+## Run it on commit, or in CI
+
+Corruption at rest is cheap to catch and expensive to find later, because by the time
+anyone notices, the pipeline that produced it has written the same text into several
+other places. Both integrations below default to the `reshaped` gate for the reason in
+the table above.
+
+### pre-commit
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/Syamjith-NK/arabic-lint
+    rev: ""        # run `pre-commit autoupdate` to fill in the latest tag
+    hooks:
+      - id: arabic-lint
+```
+
+```bash
+pre-commit install
+pre-commit run arabic-lint --all-files
+```
+
+The hook installs into pre-commit's own isolated environment, and because the package
+has no dependencies there is nothing to resolve. Use `id: arabic-lint-strict` instead
+if you want a single stray presentation form to fail the commit too.
+
+### GitHub Actions
+
+```yaml
+# .github/workflows/arabic-lint.yml
+name: arabic-lint
+on: [push, pull_request]
+jobs:
+  arabic-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Syamjith-NK/arabic-lint@main    # or pin to a tag
+```
+
+Inputs, all optional: `path` (default `.`), `min-severity` (default `reshaped`), `args`
+for anything else the CLI takes, and `version` to install a published release from PyPI
+instead of the code at the ref you pinned.
+
+```yaml
+      - uses: Syamjith-NK/arabic-lint@main
+        with:
+          path: locales
+          min-severity: stray
+          args: --exclude vendor --exclude fixtures
+```
+
+The job fails on findings, because that is what exit code 1 is for. Two things worth
+knowing before you turn either of these on:
+
+- **The severity gate applies to stored text.** A source finding, the reshape+bidi
+  recipe feeding a renderer that already shapes, is not graded by severity and is
+  always reported. That check is quiet by design and does not fire on the thousands of
+  files where the recipe is correct, so it is not the thing that will flood you.
+- **`--fix` is not wired into either integration**, and should not be. Which repair is
+  right depends on whether you control your dependency floor, which is not in the
+  source file: see
+  [which fix is correct depends on your dependency floor](#which-fix-is-correct-depends-on-your-dependency-floor).
+
 ## Which case are you in?
 
 The findings below all depend on what draws your text, and that is not knowable by
@@ -361,6 +426,17 @@ It never rewrites your files.
   distinction lives in your packaging and your users' upgrade path, not in the source
   file. See
   [which fix is correct depends on your dependency floor](#which-fix-is-correct-depends-on-your-dependency-floor).
+
+## Contributing
+
+Renderer knowledge, false-positive reports and test cases taken from real repositories
+are all wanted. [CONTRIBUTING.md](CONTRIBUTING.md) has the two rules that matter: no
+runtime dependencies, ever, and validate against real code rather than invented
+snippets. The open issues are scoped so a stranger can start on one, and the ones
+labelled `good first issue` genuinely are.
+
+A false positive is the most valuable report this project can get. The whole design is
+built around staying quiet.
 
 ## Related
 
