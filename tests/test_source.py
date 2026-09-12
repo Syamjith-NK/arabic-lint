@@ -82,6 +82,94 @@ def arab(t):
 plt.title(arab("مرحبا"))
 """
 
+# --- the bidi-only form (issue #1) ---------------------------------------------
+#
+# No reshaper anywhere. `python-bidi` is downloaded around 9.4 million times a
+# month and `arabic-reshaper` far less, so this is the larger population, and the
+# check could not see any of it. Rendered on Pillow 12.2.0 with `raqm: True` at
+# 48px Arial Unicode, `محمد الفارس` comes out as `سرافلا دمحم` here exactly as it
+# does through the full recipe. The difference is that this one is still correctly
+# joined, so it reads as fluent Arabic in reverse rather than as obvious rubbish.
+
+# github.com/waseef-ullah/neural-style-transfer-urdu, checking_fonts.py.
+# It even reshapes into a variable it then never uses, and draws the bidi-only one.
+BIDI_ONLY_PIL = """
+import numpy as np
+from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
+from bidi.algorithm import get_display
+
+text_to_be_reshaped = 'بش'
+bidi_text = get_display(text_to_be_reshaped)
+
+image = Image.new("RGB", (64, 64), (255, 255, 255))
+draw = ImageDraw.Draw(image)
+draw.text((0, 0), bidi_text, (0, 0, 0), font=ImageFont.truetype('font.ttf', 10))
+"""
+
+# github.com/The1per/SleepApp, patient_report.py. The docstring states the belief
+# this research disproves, and the ImportError fallback defines a local
+# `get_display` beside the real one, which must not stop the import counting.
+BIDI_ONLY_MPL = """
+import matplotlib.pyplot as plt
+
+try:
+    from bidi.algorithm import get_display
+except ImportError:
+    def get_display(text, base_dir=None):
+        return text
+
+def _bidi(text):
+    '''matplotlib+Agg renders text strictly left-to-right without BiDi awareness.'''
+    return get_display(text)
+
+plt.title(_bidi("שלום"))
+"""
+
+# github.com/aqntks/Easy-Yolo-OCR, easyocr.py. Pillow is imported, the OCR result
+# is reordered for display, and nothing in the file draws any text.
+BIDI_ONLY_NOTHING_DRAWS = """
+import numpy as np
+from PIL import Image
+from bidi.algorithm import get_display
+
+def readtext(self, image, result):
+    for item in result:
+        item[1] = get_display(item[1])
+    return result
+"""
+
+# ReportLab does no reordering of its own, so bidi alone is the correct thing to
+# do here and reporting it is how the tool would lose its users.
+BIDI_ONLY_REPORTLAB = """
+from reportlab.platypus import Paragraph
+from bidi.algorithm import get_display
+
+def rtl(text):
+    return get_display(text)
+
+Paragraph(rtl("مرحبا"))
+"""
+
+# github.com/fferegrino/pinteractions, pinteractions/display.py. `get_display` is
+# an extremely common method name: code search returns hundreds of projects that
+# define one on a screen, a dashboard or a blackjack hand. This one imports PIL
+# and draws text, and has nothing whatever to do with bidi.
+LOCAL_GET_DISPLAY = """
+from PIL import Image
+from PIL import ImageDraw
+
+def get_display():
+    return DisplayEPD()
+
+def main():
+    display = get_display()
+    image = Image.new("1", (250, 122), 255)
+    draw = ImageDraw.Draw(image)
+    draw.text((0, 0), "hello")
+"""
+
 
 def test_flags_the_matplotlib_case():
     r = scan_source(MPL_BUG)
@@ -124,6 +212,80 @@ def test_names_the_renderer_that_actually_draws():
     r = scan_source(BOTH_IMPORTED_MPL_DRAWS)
     assert len(r.findings) == 1
     assert r.findings[0].sink == "matplotlib"
+
+
+# --- the bidi-only form (issue #1) ---------------------------------------------
+
+
+def test_flags_bidi_only_into_pillow():
+    """get_display() with no reshape at all still reverses on a shaping renderer."""
+    r = scan_source(BIDI_ONLY_PIL)
+    assert len(r.findings) == 1
+    f = r.findings[0]
+    assert f.sink == "PIL"
+    assert f.kind == "bidi-only"
+
+
+def test_the_bidi_only_message_does_not_reuse_the_reshape_wording():
+    """Bidi alone reverses ORDER and produces no presentation forms.
+
+    Measured on Pillow 12.2.0, raqm True, 48px Arial Unicode: rendering
+    get_display(s) against the logical string gives mean abs pixel diff 9.01 and
+    reads as `سرافلا دمحم`, the same reversal the full recipe produces. What it
+    does not do is emit presentation forms, so saying it "pre-shapes" is false.
+    """
+    f = scan_source(BIDI_ONLY_PIL).findings[0]
+    assert "presentation forms" in f.reason
+    assert "reorders an already-reordered string" not in f.reason
+    assert f.format("x.py").startswith("x.py:9:13: pre-reordered text passed to PIL")
+
+
+def test_flags_bidi_only_into_matplotlib_through_an_importerror_fallback():
+    """A local def in the `except ImportError` arm is not what the call resolves to."""
+    r = scan_source(BIDI_ONLY_MPL)
+    assert len(r.findings) == 1
+    assert r.findings[0].sink == "matplotlib"
+
+
+def test_silent_for_bidi_only_when_nothing_draws():
+    """Pillow imported, OCR output reordered, nothing drawn. Not our business."""
+    r = scan_source(BIDI_ONLY_NOTHING_DRAWS)
+    assert r.findings == []
+    assert any("nothing in this file draws" in s for s in r.skipped)
+
+
+def test_silent_for_bidi_only_into_reportlab():
+    """The negative case that matters: bidi alone is CORRECT on a non-shaping sink."""
+    r = scan_source(BIDI_ONLY_REPORTLAB)
+    assert r.findings == []
+    assert any("reportlab" in s for s in r.skipped)
+    # and the message must not claim a reshaper was involved, because none was
+    assert not any("pre-shaping" in s for s in r.skipped)
+
+
+def test_silent_for_a_projects_own_get_display_method():
+    """`def get_display` is a common name in code that has never heard of bidi.
+
+    The bidi-only trigger fires only on a name imported from `bidi`, which is the
+    single thing keeping this whole class of file quiet.
+    """
+    r = scan_source(LOCAL_GET_DISPLAY)
+    assert r.findings == [] and r.skipped == []
+
+
+def test_silent_for_a_bidi_only_helper_that_is_never_called():
+    dead = """
+import matplotlib.pyplot as plt
+from bidi.algorithm import get_display
+
+def rtl(text):
+    return get_display(text)
+
+plt.title("untouched")
+"""
+    r = scan_source(dead)
+    assert r.findings == []
+    assert any("never called" in s for s in r.skipped)
 
 
 def test_unparseable_file_is_skipped_not_crashed():
@@ -181,8 +343,24 @@ def test_the_split_form_is_REFUSED_and_says_why():
     assert new == SPLIT_STATEMENTS       # not one byte touched
 
 
+def test_the_bidi_only_form_is_reported_but_not_rewritten():
+    """Detection is this change; rewriting is not.
+
+    Removing a lone get_display() where the sink shapes is very likely correct,
+    but --fix has never been validated against this form, and a rewriter that
+    edits somebody else's source on a "probably" is not one to ship.
+    """
+    r = scan_source(BIDI_ONLY_PIL)
+    f = r.findings[0]
+    assert f.fix is None
+    assert "not been validated" in f.unfixable_why
+    new, n = apply_fixes(BIDI_ONLY_PIL, r.findings)
+    assert n == 0 and new == BIDI_ONLY_PIL
+
+
 def test_nothing_is_rewritten_where_there_is_no_finding():
-    for src in (REPORTLAB_OK, DEAD_HELPER, PRINT_ONLY):
+    for src in (REPORTLAB_OK, DEAD_HELPER, PRINT_ONLY,
+                BIDI_ONLY_REPORTLAB, BIDI_ONLY_NOTHING_DRAWS, LOCAL_GET_DISPLAY):
         r = scan_source(src)
         new, n = apply_fixes(src, r.findings)
         assert n == 0 and new == src

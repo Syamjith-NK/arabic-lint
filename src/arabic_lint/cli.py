@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 from .detect import scan_text, SEVERITY_ORDER
-from .source import scan_source, apply_fixes
+from .source import scan_source, apply_fixes, HEADLINE
 from .doctor import report as doctor_report
 
 TEXT_SUFFIXES = {
@@ -143,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
                         "snippet": sf.snippet,
                         "reason": sf.reason,
                         "confidence": sf.confidence,
+                        "kind": sf.kind,
                         "fixable": bool(sf.fix),
                         "unfixable_why": sf.unfixable_why,
                     })
@@ -169,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         for r in source_results:
-            print(f"{r['file']}:{r['line']}:{r['col']}: pre-shaped text passed to "
+            print(f"{r['file']}:{r['line']}:{r['col']}: {HEADLINE[r['kind']]} "
                   f"{r['sink']}  [RENDERS REVERSED]")
             print(f"    {r['snippet']}")
             print(f"    {r['reason']}")
