@@ -99,6 +99,8 @@ arabic-lint --doctor
 
 Verdict: on matplotlib and Pillow, remove the reshape/bidi step and pass the
 logical string straight through. Leaving it in reverses the text, silently.
+That is THIS environment. Code installed on machines you do not control
+should gate on the renderer version instead of removing the step.
 ```
 
 If one renderer shapes and the other does not, it says so, because then a single

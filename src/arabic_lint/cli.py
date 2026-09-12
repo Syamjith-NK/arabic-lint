@@ -1,4 +1,4 @@
-"""arabic-lint — find Arabic text that was corrupted before it was stored.
+"""arabic-lint - find Arabic text that was corrupted before it was stored.
 
     arabic-lint path/to/repo
     arabic-lint data.json --json
@@ -200,12 +200,12 @@ def main(argv: list[str] | None = None) -> int:
         parts.append(f"{len(remaining)} source site(s) that will corrupt at render time"
                      + (" and could not be fixed mechanically" if args.fix else ""))
     if parts:
-        print("; ".join(parts) + f" — in {scanned} file(s) scanned.")
+        print("; ".join(parts) + f" - in {scanned} file(s) scanned.")
         return 1
     if fixed_files:
-        print(f"all source findings fixed — {scanned} file(s) scanned.")
+        print(f"all source findings fixed - {scanned} file(s) scanned.")
         return 0
-    print(f"clean — {scanned} file(s) scanned, no corrupted Arabic found.")
+    print(f"clean - {scanned} file(s) scanned, no corrupted Arabic found.")
     return 0
 
 
