@@ -21,6 +21,15 @@ classifiers = [
 ]
 dependencies = []
 
+# Test-only, and they must stay that way. The package itself has no runtime
+# dependencies: it is pointed at environments where the dependency tree is the
+# problem, and arabic-reshaper and python-bidi are the two libraries whose misuse it
+# detects, so installing either alongside it would change the thing being measured.
+# The suite needs them because it re-derives fixtures from the real reshaper rather
+# than trusting a recorded mock of it.
+[project.optional-dependencies]
+test = ["pytest", "arabic-reshaper", "python-bidi"]
+
 [project.urls]
 Homepage = "https://github.com/Syamjith-NK/arabic-lint"
 Issues = "https://github.com/Syamjith-NK/arabic-lint/issues"

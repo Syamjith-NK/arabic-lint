@@ -2,7 +2,11 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.pytest_cache/
+# Virtual environments, under every name this repo has been developed with. A venv
+# inside the working copy is a hundred megabytes of other people's code, and committing
+# one by accident is easy to do and awkward to undo.
 .venv/
+venv/
 .relvenv/
-.relvenv/
-.relvenv/
+.tvenv/
