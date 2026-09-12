@@ -206,9 +206,10 @@ cogs/bear_track.py:715:16: pre-shaped text passed to matplotlib  [RENDERS REVERS
     reorders an already-reordered string and the text renders reversed
 ```
 
-The recipe appears in **3,168 indexed Python files on GitHub** (measured 2026-09-08),
-and flagging all of them would be worthless, because whether it is a bug depends
-entirely on what draws the text:
+The recipe appears in **3,168 indexed Python files on GitHub** (measured 2026-09-08;
+re-measured 3,128 on 2026-09-13, because the count drifts as GitHub reindexes, so
+re-run the search rather than trusting the number). Flagging all of them would be
+worthless, because whether it is a bug depends entirely on what draws the text:
 
 | renderer | shapes and reorders? | verdict |
 |---|---|---|
@@ -307,9 +308,9 @@ finding as *this will corrupt text on a shaping renderer* rather than as *delete
 Note also that `--doctor` reports the machine it runs on, which is the right answer for a
 repo you deploy and the wrong one for software other people install.
 
-> **Why this exists:** the recipe below appears in **~1,160 indexed files on
-> GitHub** (measured 2026-09-04; the figure drifts as GitHub reindexes), and on
-> matplotlib 3.11 it now renders Arabic *backwards* with no error at all.
+> **Why this exists:** the recipe appears across [the indexed Python files counted
+> in Two checks](#two-checks) above, and on matplotlib 3.11 it now renders Arabic
+> *backwards* with no error at all.
 > [The Arabic fix everyone recommends is now the bug](https://syamjith-nk.github.io/arabic-reshape-bidi-is-now-the-bug/) — the measurements, and
 > what happened when it was filed against Pillow and matplotlib.
 
