@@ -47,6 +47,15 @@ The audit ships its own scanner, so the numbers are re-derivable rather than tru
 also documents a false positive this tool used to produce against Islamic heritage text,
 which is worth reading before you point any such tool at someone else's corpus.
 
+**Confirmed in the wild.** Four bug reports were filed from the source check below. Two were
+confirmed and closed as fixed on 12 September 2026, in
+[whiteout-project/bot#110](https://github.com/whiteout-project/bot/issues/110) and its sibling
+[kingshot-project/Kingshot-Discord-Bot#28](https://github.com/kingshot-project/Kingshot-Discord-Bot/issues/28),
+by the maintainer of both. The maintainer also found the same pattern in a second code path
+neither report mentioned. Two reports,
+[ComfyUI-PersianText#3](https://github.com/shahkoorosh/ComfyUI-PersianText/issues/3) and
+[Diwan#3](https://github.com/NoorBayan/Diwan/issues/3), are still open.
+
 ## Severity: one pasted glyph is not a destroyed corpus
 
 The [audit](https://huggingface.co/datasets/syamjithnk/arabic-corpus-audit) settled this
@@ -94,6 +103,10 @@ logical string straight through. Leaving it in reverses the text, silently.
 
 If one renderer shapes and the other does not, it says so, because then a single
 shared helper cannot be correct for both.
+
+`--doctor` answers for the machine it runs on. If your code is installed on other
+people's machines, that is a different question, and it changes the fix: see
+[which fix is correct depends on your dependency floor](#which-fix-is-correct-depends-on-your-dependency-floor).
 
 ## What counts as corruption, and what does not
 
@@ -149,6 +162,12 @@ are genuinely broken, and stays silent on a ReportLab project, a dead helper in 
 unrelated benchmark, and a script that only prints to a terminal. Pass `--no-source`
 to turn it off.
 
+A finding here says the recipe will corrupt text on a shaping renderer. It does not say
+which repair is right for your project, and the report text overstates the case when it
+suggests simply removing the call. Removing it is correct only if you control which
+version of the renderer your code runs against:
+[which fix is correct depends on your dependency floor](#which-fix-is-correct-depends-on-your-dependency-floor).
+
 ## `--fix`, and why it exists here but not for stored text
 
 The same package refuses to repair one kind of damage and offers to repair the other,
@@ -181,6 +200,45 @@ Rewriting the second line to `processed = reshaped` would remove the reordering 
 leave the shaping applied. That is still wrong, and wrong in a way that looks fixed.
 Both lines have to go, and which other code reads `reshaped` is not knowable from that
 expression. So it says so and leaves the file alone.
+
+### Which fix is correct depends on your dependency floor
+
+Deleting the call is not always the right repair, and **this tool cannot tell which case
+you are in**, because the answer is not in the code. It depends on whether your project
+controls the version of the renderer it runs against.
+
+**If you set the floor**, delete the call. A repo that pins `matplotlib>=3.11`, an
+application shipped with a lockfile, or anything whose supported versions are declared in
+CI knows that the renderer shapes. That is the rewrite `--fix` performs.
+
+**If you cannot force an upgrade**, gate on the version instead. A distributed application
+whose users update on their own schedule, or a library installed next to whatever the user
+already has, will keep running on older renderers after your fix ships. For those installs a
+bare removal leaves no shaping at all, which trades reversed text for disjointed text: a
+different bug, not a fix.
+
+```python
+import matplotlib
+from packaging.version import Version
+
+if Version(matplotlib.__version__) >= Version("3.11"):
+    label = text                                    # matplotlib shapes and reorders
+else:
+    label = get_display(arabic_reshaper.reshape(text))
+```
+
+This is not a hypothetical. It is the fix the maintainer of
+[whiteout-project/bot](https://github.com/whiteout-project/bot/issues/110) and
+[kingshot-project/Kingshot-Discord-Bot](https://github.com/kingshot-project/Kingshot-Discord-Bot/issues/28)
+applied in September 2026, in preference to the removal these reports proposed, and the
+reason is one no static analyser can reach: their updater installs missing packages but
+never bumps existing ones, so a bare removal would have left every existing 3.10 install
+with no shaping at all.
+
+So treat `--fix` as correct for code whose renderer version you pin, and read a source
+finding as *this will corrupt text on a shaping renderer* rather than as *delete this line*.
+Note also that `--doctor` reports the machine it runs on, which is the right answer for a
+repo you deploy and the wrong one for software other people install.
 
 > **Why this exists:** the recipe below appears in **~1,160 indexed files on
 > GitHub** (measured 2026-09-04; the figure drifts as GitHub reindexes), and on
@@ -272,8 +330,8 @@ It never rewrites your files.
 
 ## Verification
 
-- **10/10 tests**, no runtime dependency on `arabic_reshaper` or `python-bidi`
-  (fixtures are recorded from a real run of both).
+- The test suite runs with **no runtime dependency** on `arabic_reshaper` or
+  `python-bidi` (fixtures are recorded from a real run of both).
 - Block boundaries were **measured, not assumed**: over a wide Arabic sample,
   `arabic_reshaper` 3.0.0 emits 53 distinct codepoints from Presentation Forms-B
   and never emits U+FEFF.
@@ -293,9 +351,14 @@ It never rewrites your files.
 - The recovery direction assumes bidi was applied. Text that was reshaped but
   *not* reordered recovers reversed. The tool shows you the candidate so you can
   see which case you have; it does not guess.
-- It detects corruption that is *already stored*. It cannot tell you whether your
-  rendering pipeline is about to create some — for that, check
-  `PIL.features.check("raqm")` at runtime in the environment doing the rendering.
+- The stored check only sees corruption that is *already written down*. The source
+  check is what looks ahead at code that will create some, and `--doctor` is what
+  answers it for the environment actually doing the rendering.
+- **It cannot tell whether you control your dependency floor**, so it cannot tell you
+  whether to delete the pre-shaping call or gate it on the renderer version. That
+  distinction lives in your packaging and your users' upgrade path, not in the source
+  file. See
+  [which fix is correct depends on your dependency floor](#which-fix-is-correct-depends-on-your-dependency-floor).
 
 ## Related
 
