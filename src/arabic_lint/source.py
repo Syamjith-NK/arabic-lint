@@ -303,7 +303,8 @@ def _plan_fix(call: ast.Call, v: "_Visitor", text: str) -> tuple[str | None, str
     if isinstance(arg, ast.Name) and arg.id in v.reshaped_vars:
         return None, (f"reshape() is applied on an earlier line to `{arg.id}`. Removing only "
                       "this call would leave the text shaped but not reordered, which is still "
-                      "wrong. Delete both lines and pass the original string.")
+                      "wrong. Delete both lines and pass the original string, or gate them "
+                      "on the renderer version if you cannot require one.")
 
     inner = arg if isinstance(arg, ast.Call) and _callee(arg) in v.reshape_names else None
     if inner is None:

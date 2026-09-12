@@ -135,6 +135,8 @@ def report() -> tuple[list[str], bool]:
         names = " and ".join(c.name for c in breaks)
         lines.append(f"Verdict: on {names}, remove the reshape/bidi step and pass the")
         lines.append("logical string straight through. Leaving it in reverses the text, silently.")
+        lines.append("That is THIS environment. Code installed on machines you do not control")
+        lines.append("should gate on the renderer version instead of removing the step.")
     if safe:
         names = " and ".join(c.name for c in safe)
         lines.append(f"Verdict: on {names}, keep the reshape/bidi step. Removing it")

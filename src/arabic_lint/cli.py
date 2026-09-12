@@ -176,7 +176,10 @@ def main(argv: list[str] | None = None) -> int:
             if r["unfixable_why"]:
                 print(f"    NOT auto-fixable: {r['unfixable_why']}")
             elif not args.fix:
-                print("    fixable: run again with --fix")
+                print("    fixable: --fix deletes the call, which is correct only if you pin"
+                      " the renderer")
+                print("             version. If you cannot, gate on it instead"
+                      " (README: dependency floor).")
             print()
 
     if fixed_files:
