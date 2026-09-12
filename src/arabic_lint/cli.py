@@ -24,6 +24,7 @@ mean thousands of false positives, and a checker nobody trusts is worse than non
 from __future__ import annotations
 
 import argparse
+import codecs
 import json
 import sys
 from pathlib import Path
@@ -40,6 +41,34 @@ TEXT_SUFFIXES = {
 }
 
 DEFAULT_EXCLUDES = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
+
+TEXT_BOMS = (
+    codecs.BOM_UTF8,
+    codecs.BOM_UTF16_LE,
+    codecs.BOM_UTF16_BE,
+    codecs.BOM_UTF32_LE,
+    codecs.BOM_UTF32_BE,
+)
+
+
+def looks_like_text(path: Path) -> bool:
+    """Was a file that would not decode as UTF-8 probably text anyway?
+
+    A PNG is correctly skipped, and saying so for every image in a repository
+    would be noise, so the line is drawn at "looks like text but did not
+    decode" rather than at "did not decode". A NUL byte in the head means
+    binary, unless the head opens with a text BOM: UTF-16 and UTF-32 text is
+    full of NUL bytes, and legacy exports are exactly the pipeline this tool
+    exists for.
+    """
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(4096)
+    except OSError:
+        return False
+    if head.startswith(TEXT_BOMS):
+        return True
+    return b"\x00" not in head
 
 
 def iter_files(root: Path, excludes: set[str]):
@@ -92,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     results: list[dict] = []
     source_results: list[dict] = []
     fixed_files: list[tuple[str, int]] = []
+    skipped: list[str] = []
     scanned = 0
 
     for root in args.paths:
@@ -101,7 +131,13 @@ def main(argv: list[str] | None = None) -> int:
         for path in iter_files(root, excludes):
             try:
                 text = path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
+            except UnicodeDecodeError:
+                # Silence here reads as "scanned and clean", which is the one
+                # thing a linter must not say about a file it never read.
+                if looks_like_text(path):
+                    skipped.append(str(path))
+                continue
+            except OSError:
                 continue
             scanned += 1
             report = scan_text(text)
@@ -148,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
                     })
 
     if args.as_json:
-        json.dump({"scanned": scanned, "findings": results,
+        json.dump({"scanned": scanned, "skipped": skipped, "findings": results,
                    "source_findings": source_results,
                    "fixed": [{"file": f, "calls": n} for f, n in fixed_files]}, sys.stdout,
                   ensure_ascii=False, indent=2)
@@ -187,6 +223,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"fixed {n} call(s) in {path}")
         print()
 
+    if skipped and not args.quiet:
+        for path in skipped:
+            print(f"{path}: not scanned - looks like text but is not valid UTF-8")
+        print()
+
+    skipped_note = f", {len(skipped)} skipped (not valid UTF-8)" if skipped else ""
     unsafe = sum(1 for r in results if not r["safe_to_autofix"])
     parts = []
     if results:
@@ -200,12 +242,12 @@ def main(argv: list[str] | None = None) -> int:
         parts.append(f"{len(remaining)} source site(s) that will corrupt at render time"
                      + (" and could not be fixed mechanically" if args.fix else ""))
     if parts:
-        print("; ".join(parts) + f" - in {scanned} file(s) scanned.")
+        print("; ".join(parts) + f" - in {scanned} file(s) scanned{skipped_note}.")
         return 1
     if fixed_files:
-        print(f"all source findings fixed - {scanned} file(s) scanned.")
+        print(f"all source findings fixed - {scanned} file(s) scanned{skipped_note}.")
         return 0
-    print(f"clean - {scanned} file(s) scanned, no corrupted Arabic found.")
+    print(f"clean - {scanned} file(s) scanned{skipped_note}, no corrupted Arabic found.")
     return 0
 
 
