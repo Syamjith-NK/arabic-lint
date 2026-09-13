@@ -72,7 +72,7 @@ Those are different problems:
 |---|---|---|---|
 | `stray` | 1 | pasted from a PDF, or OCR residue | fix the character |
 | `partial` | 2–4 | a fragment, or a short pass through the recipe | check where the text came from |
-| `reshaped` | 5+ | reshape+bidi ran before this was stored | **audit the pipeline**, not the file |
+| `reshaped` | 5+ | a shaping pass ran before this was stored | **audit the pipeline**, not the file |
 
 Reporting them identically means a team with one stray glyph in ten thousand rows gets the
 same alarm as a team whose corpus was destroyed, and then they switch the alarm off.

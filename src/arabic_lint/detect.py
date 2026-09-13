@@ -157,7 +157,7 @@ def has_lam_alef(text: str) -> bool:
 #
 #   stray     one glyph, pasted out of a PDF or left by OCR. Fix that character.
 #   partial   a few. Usually the same, sometimes a fragment that went through the recipe.
-#   reshaped  a long run: reshape+bidi ran over this text before it was stored. The file
+#   reshaped  a long run: a shaping pass ran over this text before it was stored. The file
 #             is not the problem, the pipeline that wrote it is, and every other file it
 #             touched needs checking too.
 #
@@ -178,10 +178,15 @@ def severity_of(n_presentation: int) -> str:
 SEVERITY_ADVICE = {
     "stray": "a single presentation form in otherwise correct text: usually pasted from a "
              "PDF or left by OCR. Fix the character, not the pipeline.",
-    "partial": "a short run of presentation forms. Check whether this text passed through "
-               "reshape+bidi, or whether a fragment was pasted in.",
-    "reshaped": "a long run of presentation forms: reshape+bidi ran over this text before it "
-                "was stored. The pipeline that wrote this file is the problem, and every "
+    "partial": "a short run of presentation forms. Check whether this text passed through a "
+               "shaping pass, or whether a fragment was pasted in.",
+    # Deliberately does NOT claim bidi ran. A severity is counted from stored glyph
+    # forms, which is evidence of reshape() and nothing more; word order is a separate
+    # property this tool does not measure. Saying "reshape+bidi" here told one dataset
+    # author their text was reordered when it was not, and sent them toward a repair
+    # that would have damaged it.
+    "reshaped": "a long run of presentation forms: a shaping pass ran over this text before "
+                "it was stored. The pipeline that wrote this file is the problem, and every "
                 "other file it touched needs checking.",
 }
 
