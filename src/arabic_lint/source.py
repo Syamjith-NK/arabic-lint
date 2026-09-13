@@ -50,14 +50,16 @@ MPL_CALLS = {
     "set_xticklabels", "set_yticklabels", "annotate", "legend", "bar_label",
 }
 PIL_CALLS = {"multiline_text", "Draw"}
+WORDCLOUD_CALLS = {"generate", "generate_from_frequencies", "generate_from_text"}
 AMBIGUOUS_CALLS = {"text"}                       # both libraries spell it `text`
-DRAWING_CALLS = MPL_CALLS | PIL_CALLS | AMBIGUOUS_CALLS
+DRAWING_CALLS = MPL_CALLS | PIL_CALLS | WORDCLOUD_CALLS | AMBIGUOUS_CALLS
 
 # Modules whose text APIs shape and reorder complex scripts themselves. Handing
 # them a pre-shaped string means the work is done twice.
 SHAPING_SINKS = {
     "matplotlib": "matplotlib >= 3.11 shapes text with libraqm and applies bidi itself",
     "PIL": "Pillow built with Raqm shapes text and applies bidi itself",
+    "wordcloud": "wordcloud draws through Pillow, which shapes text when built with Raqm",
 }
 
 # Modules that do no shaping and no bidi. The recipe is correct for these, and
@@ -322,6 +324,8 @@ def scan_source(text: str) -> SourceReport:
     # on alphabetical order, or a matplotlib bug gets reported against Pillow.
     if len(shaping) == 1:
         sink = shaping[0]
+    elif v.drawing & WORDCLOUD_CALLS:
+        sink = "wordcloud"
     elif v.drawing & MPL_CALLS:
         sink = "matplotlib"
     elif v.drawing & PIL_CALLS:
