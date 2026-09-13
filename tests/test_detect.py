@@ -5,10 +5,33 @@ are installed; otherwise the same strings are hard-coded from a recorded run, so
 the suite has no runtime dependency on either package.
 """
 
+import importlib
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+
+class _Missing(Exception):
+    """An optional package is absent, so the test is skipped rather than failed."""
+
+
+def _optional(name: str):
+    """Import a package the suite does not depend on, or skip the caller.
+
+    Two runners have to keep working: `pytest`, where this must report a skip and
+    not a failure, and `python3 tests/test_detect.py`, which has to run with no
+    pytest installed at all.
+    """
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        pass
+    try:
+        import pytest
+    except ImportError:
+        raise _Missing(name) from None
+    pytest.skip(f"{name} is not installed")
 
 from arabic_lint.detect import (  # noqa: E402
     has_lam_alef, is_presentation_form, recover, scan_text,
@@ -94,15 +117,14 @@ def _run():
         try:
             fn()
             print(f"  ok   {fn.__name__}")
+        except _Missing as e:
+            print(f"  skip {fn.__name__}: {e} is not installed")
         except AssertionError as e:
             failed += 1
             print(f"  FAIL {fn.__name__}: {e}")
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     return 1 if failed else 0
 
-
-if __name__ == "__main__":
-    raise SystemExit(_run())
 
 
 # --- Presentation Forms-A ---------------------------------------------------
@@ -112,7 +134,7 @@ if __name__ == "__main__":
 
 def test_persian_only_letters_are_detected():
     """گچ has no Forms-B mapping at all and scored zero before."""
-    import arabic_reshaper
+    arabic_reshaper = _optional("arabic_reshaper")
     for word in ("گچ", "چپ", "گپ", "پژ", "پی"):
         reshaped = arabic_reshaper.reshape(word)
         assert any(is_presentation_form(c) for c in reshaped), word
@@ -192,8 +214,8 @@ def test_severity_order_is_ascending():
 
 def test_a_full_recipe_run_is_reshaped_not_stray():
     """The real thing: a whole string through reshape+bidi."""
-    import arabic_reshaper
-    from bidi.algorithm import get_display
+    arabic_reshaper = _optional("arabic_reshaper")
+    get_display = _optional("bidi.algorithm").get_display
     corrupted = get_display(arabic_reshaper.reshape("الإمارات العربية المتحدة"))
     f = scan_text(corrupted).findings[0]
     assert f.severity == "reshaped"
@@ -205,3 +227,11 @@ def test_one_pasted_glyph_is_stray_and_the_advice_says_so():
     f = scan_text("هذا نص عربي سليم فيه ﺑ حرف واحد").findings[0]
     assert f.severity == "stray"
     assert "Fix the character, not the pipeline" in f.advice
+
+
+# Kept at the very end on purpose: `_run()` collects from globals(), so a test
+# defined below this point would not exist yet and would be skipped in silence.
+# It sat above the Forms-A and severity tests once, and reported "10/10 passed"
+# while running a quarter of the suite.
+if __name__ == "__main__":
+    raise SystemExit(_run())

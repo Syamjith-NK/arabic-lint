@@ -245,6 +245,14 @@ def recover(text: str) -> tuple[str, bool, str]:
 
     That second case is why this is reported rather than silently fixed: the
     output is still pronounceable Arabic, so it survives a proofread.
+
+    IMPORTANT, and this function does not currently decide it for you: all of the
+    above assumes the bidi step ran too. `reshape()` on its own leaves presentation
+    forms in *logical* order, which is common in the wild -- a whole public OCR
+    dataset measured in Sep 2026 was exactly that case. There, NFKC alone is the
+    complete and safe repair and the reversal here is wrong. Check word order
+    before trusting the reversal: if no word in the span begins with a FINAL form,
+    bidi did not run and there is nothing to reverse.
     """
     if not any(is_presentation_form(c) for c in text):
         return text, True, "nothing to recover"
@@ -256,7 +264,10 @@ def recover(text: str) -> tuple[str, bool, str]:
             "contains a lam-alef ligature; NFKC decomposition reorders the pair, "
             "so this recovery is wrong even though it looks like Arabic"
         )
-    return guess, True, "NFKC + reverse round-trips exactly for this span"
+    return guess, True, (
+        "NFKC + reverse round-trips exactly for this span IF bidi was applied too; "
+        "if only reshape() ran the text is already in logical order, so use NFKC alone"
+    )
 
 
 def scan_text(text: str) -> Report:

@@ -29,10 +29,15 @@ Yes, and here is the measurement rather than the assertion.
 — 341 public Arabic datasets on the Hugging Face Hub, 276 readable, 26,318 rows,
 119,517 text fields, scanned with this tool.
 
-- **1 dataset is 100% corrupted.** `Yousefmd/arabic_ocr_dataset`: 400 of 400 fields, 23 to
-  29 presentation forms per label, INITIAL/MEDIAL/FINAL/ISOLATED forms together and the
-  words in reversed order. It is an OCR set, so the corrupted field is the **ground-truth
-  label** — a model trained on it learns to emit presentation forms in visual order.
+- **1 dataset carries presentation forms in every sampled label.**
+  `Yousefmd/arabic_ocr_dataset`: 1,000 of 1,000 sampled labels, 3 to 50 presentation forms per label
+  (median 24), INITIAL/MEDIAL/FINAL/ISOLATED forms together. It is an OCR set, so the
+  affected field is the **ground-truth label** — a model trained on it learns to emit glyph
+  forms that will not compare equal to ordinary Arabic.
+  **Only the shaping step ran there, not bidi:** the words are in logical order and plain
+  `NFKC` recovers them. An earlier version of this README said visual order; that was wrong
+  and is corrected in the audit's own
+  [correction log](https://huggingface.co/datasets/syamjithnk/arabic-corpus-audit#corrections).
   (Its scale, stated plainly: 17 downloads. This proves the mechanism reaches training
   data; it is not evidence that widely-used corpora are affected.)
 - **20 more** had single stray presentation forms, no reshaped runs. Still wrong, since a
@@ -397,10 +402,18 @@ language, so this is not a corner case.
 It never rewrites stored text: `--fix` applies to source findings only, and refuses
 even there when the two halves of the recipe are split across separate lines.
 
+**One important qualifier.** All of the above assumes both calls ran. `reshape()` on its own,
+with no `get_display()`, is common in the wild: it leaves presentation forms in **logical**
+order, and then `NFKC` alone is a complete and safe repair, lam-alef included. So check word
+order before you assume the harder case. If the string's words come back readable under plain
+`NFKC`, bidi never ran and there is nothing to reverse. Getting this backwards means telling
+someone their data is harder to repair than it is.
+
 ## Verification
 
 - The test suite runs with **no runtime dependency** on `arabic_reshaper` or
-  `python-bidi` (fixtures are recorded from a real run of both).
+  `python-bidi`: fixtures are recorded from a real run of both, and the two tests that
+  do call them skip rather than fail when they are absent.
 - Block boundaries were **measured, not assumed**: over a wide Arabic sample,
   `arabic_reshaper` 3.0.0 emits 53 distinct codepoints from Presentation Forms-B
   and never emits U+FEFF.
