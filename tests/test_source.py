@@ -82,6 +82,32 @@ def arab(t):
 plt.title(arab("مرحبا"))
 """
 
+# github.com/amirivojdan/shekar, shekar/visualization/word_cloud.py. Matplotlib
+# supplies only the colormap; WordCloud is the renderer that consumes the
+# pre-shaped frequency keys through Pillow.
+WORDCLOUD_DRAWS = """
+import matplotlib
+import arabic_reshaper
+from bidi import get_display
+from wordcloud import WordCloud
+
+def cloud(freqs, colormap="viridis"):
+    cmap = matplotlib.colormaps[colormap]
+    reshaped = {get_display(arabic_reshaper.reshape(k)): float(v) for k, v in freqs.items()}
+    return WordCloud(colormap=cmap).generate_from_frequencies(reshaped)
+"""
+
+WORDCLOUD_UNUSED = """
+import arabic_reshaper
+from bidi import get_display
+from wordcloud import WordCloud
+
+def shape(text):
+    return get_display(arabic_reshaper.reshape(text))
+
+print(shape("مرحبا"))
+"""
+
 # --- the bidi-only form (issue #1) ---------------------------------------------
 #
 # No reshaper anywhere. `python-bidi` is downloaded around 9.4 million times a
@@ -212,6 +238,25 @@ def test_names_the_renderer_that_actually_draws():
     r = scan_source(BOTH_IMPORTED_MPL_DRAWS)
     assert len(r.findings) == 1
     assert r.findings[0].sink == "matplotlib"
+
+
+def test_flags_wordcloud_generation_as_a_pillow_sink():
+    r = scan_source(WORDCLOUD_DRAWS)
+    assert len(r.findings) == 1
+    assert r.findings[0].sink == "wordcloud"
+    assert "Pillow" in r.findings[0].reason
+
+
+def test_flags_each_wordcloud_generation_entry_point():
+    for method in ("generate", "generate_from_frequencies", "generate_from_text"):
+        source = WORDCLOUD_DRAWS.replace("generate_from_frequencies", method)
+        assert scan_source(source).findings[0].sink == "wordcloud"
+
+
+def test_wordcloud_import_without_generation_is_silent():
+    r = scan_source(WORDCLOUD_UNUSED)
+    assert r.findings == []
+    assert any("nothing in this file draws" in s for s in r.skipped)
 
 
 # --- the bidi-only form (issue #1) ---------------------------------------------
