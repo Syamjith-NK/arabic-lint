@@ -31,12 +31,14 @@ from pathlib import Path
 from .detect import scan_text, SEVERITY_ORDER
 from .source import scan_source, apply_fixes, HEADLINE
 from .doctor import report as doctor_report
+from .notebook import read_notebook
 
 TEXT_SUFFIXES = {
     ".txt", ".json", ".jsonl", ".csv", ".tsv", ".md", ".yml", ".yaml",
     ".xml", ".html", ".htm", ".svg", ".po", ".properties", ".strings",
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".swift",
     ".php", ".rb", ".go", ".rs", ".c", ".h", ".cpp", ".cs", ".sql",
+    ".ipynb",
 }
 
 DEFAULT_EXCLUDES = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
@@ -104,28 +106,53 @@ def main(argv: list[str] | None = None) -> int:
             except (UnicodeDecodeError, OSError):
                 continue
             scanned += 1
-            report = scan_text(text)
-            floor = SEVERITY_ORDER.index(args.min_severity)
-            for f in report.findings:
-                if SEVERITY_ORDER.index(f.severity) < floor:
-                    continue
-                results.append({
-                    "file": str(path),
-                    "line": f.line,
-                    "col": f.col,
-                    "presentation_forms": f.n_presentation,
-                    "text": f.text,
-                    "recovered": f.recovered,
-                    "safe_to_autofix": f.recoverable,
-                    "note": f.note,
-                    "severity": f.severity,
-                    "advice": f.advice,
-                })
+            is_notebook = path.suffix.lower() == ".ipynb"
+            if is_notebook:
+                try:
+                    chunks = read_notebook(text)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    print(f"arabic-lint: cannot read notebook {path}: {exc}", file=sys.stderr)
+                    return 2
+            else:
+                chunks = []
 
-            if not args.no_source and path.suffix.lower() == ".py":
-                sreport = scan_source(text)
+            floor = SEVERITY_ORDER.index(args.min_severity)
+            stored_texts = chunks if is_notebook else [None]
+            for chunk in stored_texts:
+                report = scan_text(chunk.text if chunk is not None else text)
+                for f in report.findings:
+                    if SEVERITY_ORDER.index(f.severity) < floor:
+                        continue
+                    result = {
+                        "file": str(path),
+                        "line": f.line,
+                        "col": f.col,
+                        "presentation_forms": f.n_presentation,
+                        "text": f.text,
+                        "recovered": f.recovered,
+                        "safe_to_autofix": f.recoverable,
+                        "note": f.note,
+                        "severity": f.severity,
+                        "advice": f.advice,
+                    }
+                    if chunk is not None:
+                        result["cell"] = chunk.cell
+                    results.append(result)
+
+            source_texts = []
+            if not args.no_source:
+                if is_notebook:
+                    source_texts = [chunk for chunk in chunks if chunk.is_code]
+                elif path.suffix.lower() == ".py":
+                    source_texts = [None]
+            for chunk in source_texts:
+                source_text = chunk.text if chunk is not None else text
+                sreport = scan_source(source_text)
                 if args.fix and any(f.fix for f in sreport.findings):
-                    new_text, n = apply_fixes(text, sreport.findings)
+                    if chunk is not None:
+                        new_text, n = source_text, 0
+                    else:
+                        new_text, n = apply_fixes(text, sreport.findings)
                     try:
                         compile(new_text, str(path), "exec")
                     except SyntaxError as exc:
@@ -135,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
                         path.write_text(new_text, encoding="utf-8")
                         fixed_files.append((str(path), n))
                 for sf in sreport.findings:
-                    source_results.append({
+                    result = {
                         "file": str(path),
                         "line": sf.line,
                         "col": sf.col,
@@ -144,9 +171,13 @@ def main(argv: list[str] | None = None) -> int:
                         "reason": sf.reason,
                         "confidence": sf.confidence,
                         "kind": sf.kind,
-                        "fixable": bool(sf.fix),
-                        "unfixable_why": sf.unfixable_why,
-                    })
+                        "fixable": bool(sf.fix) and chunk is None,
+                        "unfixable_why": ("notebook cells are not rewritten automatically"
+                                          if chunk is not None and sf.fix else sf.unfixable_why),
+                    }
+                    if chunk is not None:
+                        result["cell"] = chunk.cell
+                    source_results.append(result)
 
     if args.as_json:
         json.dump({"scanned": scanned, "findings": results,
@@ -159,7 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.quiet:
         for r in results:
             flag = "" if r["safe_to_autofix"] else "  [UNSAFE TO AUTO-FIX]"
-            print(f"{r['file']}:{r['line']}:{r['col']}: "
+            location = f"{r['file']}:"
+            if "cell" in r:
+                location += f"cell {r['cell']}:"
+            print(f"{location}{r['line']}:{r['col']}: "
                   f"{r['presentation_forms']} Arabic presentation forms stored "
                   f"[{r['severity']}]{flag}")
             print(f"    found     : {r['text']}")
@@ -170,7 +204,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         for r in source_results:
-            print(f"{r['file']}:{r['line']}:{r['col']}: {HEADLINE[r['kind']]} "
+            location = f"{r['file']}:"
+            if "cell" in r:
+                location += f"cell {r['cell']}:"
+            print(f"{location}{r['line']}:{r['col']}: {HEADLINE[r['kind']]} "
                   f"{r['sink']}  [RENDERS REVERSED]")
             print(f"    {r['snippet']}")
             print(f"    {r['reason']}")
