@@ -122,8 +122,9 @@ the README:
   the text contains a lam-alef ligature, where the "recovery" produces a real but
   different Arabic word that survives a proofread.
 - **`--fix` refuses the split form** where `reshape()` and `get_display()` are on
-  different lines. Removing only the second call leaves the shaping applied, which is
-  still wrong and looks fixed.
+  different lines. Removing only the second call leaves the shaping applied: ligatures
+  can differ on a shaping renderer, while Pillow without Raqm loses the reordering it
+  needs. Both lines and other uses of the reshaped variable need manual review.
 - **Arabic word ligatures and the ornate Quranic parentheses are not corruption
   signals.** They live inside the same Unicode block as the positional forms, and
   treating the block as a signal reports Islamic heritage text as broken.

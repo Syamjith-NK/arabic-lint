@@ -331,13 +331,20 @@ def test_the_aliased_form_is_rewritten_too():
 def test_the_split_form_is_REFUSED_and_says_why():
     """Rewriting only the get_display() call would leave reshape() applied.
 
-    That is still broken, and broken in a way that looks fixed, which is worse than
-    leaving it alone.
+    Issue #4 records pixel comparisons on Raqm Pillow: two strings rendered
+    identically to logical text; a lam-alef example differed in shaping, not order.
+    https://github.com/Syamjith-NK/arabic-lint/issues/4
     """
     r = scan_source(SPLIT_STATEMENTS)
     f = r.findings[0]
     assert f.fix is None
+    assert f.unfixable_why is not None
     assert "earlier line" in f.unfixable_why
+    assert "shaped but not reordered" not in f.unfixable_why
+    assert "ligature differences on a shaping renderer" in f.unfixable_why
+    assert "wrong text on Pillow without Raqm" in f.unfixable_why
+    assert "Both lines must be handled together" in f.unfixable_why
+    assert "other code reads `reshaped`" in f.unfixable_why
     new, n = apply_fixes(SPLIT_STATEMENTS, r.findings)
     assert n == 0
     assert new == SPLIT_STATEMENTS       # not one byte touched

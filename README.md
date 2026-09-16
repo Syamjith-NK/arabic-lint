@@ -269,10 +269,13 @@ reshaped  = arabic_reshaper.reshape(segment)
 processed = get_display(reshaped)        # NOT auto-fixable
 ```
 
-Rewriting the second line to `processed = reshaped` would remove the reordering and
-leave the shaping applied. That is still wrong, and wrong in a way that looks fixed.
-Both lines have to go, and which other code reads `reshaped` is not knowable from that
-expression. So it says so and leaves the file alone.
+Rewriting the second line to `processed = reshaped` would remove the explicit
+reordering but leave the shaping applied. A shaping renderer still reorders that
+text, so it can look correct while differing on ligatures. On Pillow without Raqm,
+it renders in the wrong order because the deleted call was doing the reordering.
+Both lines must be handled together, and which other code reads `reshaped` is not
+knowable from that expression. Pass the original string to a shaping renderer, or
+gate both steps on the renderer's shaping support. The tool leaves the file alone.
 
 ### Which fix is correct depends on your dependency floor
 

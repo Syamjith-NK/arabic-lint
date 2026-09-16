@@ -367,9 +367,10 @@ def _plan_fix(call: ast.Call, v: "_Visitor", text: str,
 
     NOT safe:  reshaped = reshape(x)  /  out = get_display(reshaped)
             Rewriting the second line to `out = reshaped` deletes the bidi half and
-            LEAVES the shaping half applied. That is still wrong, and it is wrong in
-            a way that looks fixed. The two lines have to go together, and which
-            other code reads `reshaped` is not knowable from this expression.
+            leaves the shaping half applied. A shaping renderer still reorders it,
+            but ligatures can differ; Pillow without Raqm needs the deleted bidi step.
+            The two lines must be handled together, and which other code reads
+            `reshaped` is not knowable from this expression.
     """
     if kind == BIDI_ONLY:
         return None, ("this is the bidi-only form, and --fix has not been validated "
@@ -382,9 +383,12 @@ def _plan_fix(call: ast.Call, v: "_Visitor", text: str,
     # split-statement form: the argument is a variable assigned from reshape()
     if isinstance(arg, ast.Name) and arg.id in v.reshaped_vars:
         return None, (f"reshape() is applied on an earlier line to `{arg.id}`. Removing only "
-                      "this call would leave the text shaped but not reordered, which is still "
-                      "wrong. Delete both lines and pass the original string, or gate them "
-                      "on the renderer version if you cannot require one.")
+                      "this call leaves the shaping applied: this can cause ligature "
+                      "differences on a shaping renderer, and wrong text on Pillow without "
+                      "Raqm because it needs the reordering. Both lines must be handled "
+                      f"together, and which other code reads `{arg.id}` is not knowable "
+                      "from this expression. Pass the original string to a shaping renderer, "
+                      "or gate both steps on the renderer's shaping support.")
 
     inner = arg if isinstance(arg, ast.Call) and _callee(arg) in v.reshape_names else None
     if inner is None:
