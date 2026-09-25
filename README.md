@@ -445,7 +445,16 @@ MARK, which does for Arabic-script runs exactly what those two do everywhere els
 On `google/mt5-base`, a phrase goes from 5 pieces to 7 with an ALM in it and is
 unchanged with an RLM; `google/mt5-base` also carries U+061C as its own vocabulary
 token. Same visible text, different token sequence, decided by which pipeline saw it.
-([filed upstream](https://github.com/google/sentencepiece/issues/1331))
+
+Filed upstream as
+[google/sentencepiece#1331](https://github.com/google/sentencepiece/issues/1331), and
+closed as fixed on 22 September 2026 by Taku Kudo, SentencePiece's author, who mapped
+U+061C to a space in `nmt_nfkc` beside LRM and RLM and added a regression test covering
+all three. The report was the contribution; the fix is his. It is in the repository and
+not in a release: v0.2.2 is the newest and predates it, so the normalizer you install
+today still passes ALM through, and a model that already exists keeps the precompiled
+normalizer it was trained with. That is the `residue` band in the table below, and the
+reason this check is here.
 
 An unterminated scope is a different problem with a different weight:
 
