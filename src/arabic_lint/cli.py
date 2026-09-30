@@ -35,6 +35,7 @@ from .detect import scan_text, SEVERITY_ORDER
 from .controls import scan_controls, RISK_ORDER
 from .source import scan_source, apply_fixes, HEADLINE
 from .doctor import report as doctor_report
+from . import baseline as bl
 
 TEXT_SUFFIXES = {
     ".txt", ".json", ".jsonl", ".csv", ".tsv", ".md", ".yml", ".yaml",
@@ -116,7 +117,18 @@ def main(argv: list[str] | None = None) -> int:
                          "Never touches stored text, which cannot be repaired safely, "
                          "and never strips a bidi control: whether one belongs there "
                          "is a question about the document, not about the character.")
+    ap.add_argument("--baseline", metavar="FILE", default=None,
+                    help="report only findings that are NOT recorded in FILE, so an "
+                         "existing codebase can gate on what it adds next. Suppressed "
+                         "and no-longer-present counts are always printed.")
+    ap.add_argument("--write-baseline", metavar="FILE", default=None,
+                    help="record everything this run finds into FILE and exit 0")
     args = ap.parse_args(argv)
+
+    if args.baseline and args.write_baseline:
+        ap.error("--baseline reports what is new, --write-baseline records what exists; "
+                 "using both in one run would suppress findings while writing them down. "
+                 "Regenerate with --write-baseline alone.")
 
     if args.doctor:
         lines, _ = doctor_report()
@@ -127,6 +139,44 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("give at least one path, or use --doctor")
 
     excludes = DEFAULT_EXCLUDES | set(args.exclude)
+
+    # The baseline file lives inside the tree it describes, so it would otherwise be
+    # scanned like any other .json. Even with escaped samples there is nothing in it
+    # worth reading twice; skipping it keeps the feature honest if the format ever
+    # carries raw text again.
+    ledger_path = args.baseline or args.write_baseline
+    try:
+        ledger_resolved = Path(ledger_path).expanduser().resolve() if ledger_path else None
+    except OSError:                                      # pragma: no cover - defensive
+        ledger_resolved = None
+
+    if args.baseline:
+        try:
+            base = bl.Baseline.load(args.baseline)
+        except FileNotFoundError:
+            print(f"arabic-lint: no such baseline: {args.baseline}\n"
+                  f"             create one with --write-baseline {args.baseline}",
+                  file=sys.stderr)
+            return 2
+        except (ValueError, json.JSONDecodeError, OSError) as exc:
+            print(f"arabic-lint: cannot read baseline {args.baseline}: {exc}",
+                  file=sys.stderr)
+            return 2
+    else:
+        base = bl.Baseline.empty()
+
+    # (kind, file-relative-to-baseline, finding) for --write-baseline
+    to_record: list[tuple[str, str, dict]] = []
+
+    def covered(kind: str, path: Path, finding: dict) -> bool:
+        """Record it, or ask the baseline whether it is already known."""
+        if args.write_baseline:
+            to_record.append((kind, bl.relative(path, args.write_baseline), finding))
+            return False
+        if not args.baseline:
+            return False
+        return base.allows(kind, bl.relative(path, args.baseline), finding)
+
     results: list[dict] = []
     control_results: list[dict] = []
     source_results: list[dict] = []
@@ -139,6 +189,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"arabic-lint: no such path: {root}", file=sys.stderr)
             return 2
         for path in iter_files(root, excludes):
+            if ledger_resolved is not None:
+                try:
+                    if path.resolve() == ledger_resolved:
+                        continue
+                except OSError:                          # pragma: no cover - defensive
+                    pass
             try:
                 text = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
@@ -155,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
             for f in report.findings:
                 if SEVERITY_ORDER.index(f.severity) < floor:
                     continue
-                results.append({
+                row = {
                     "file": str(path),
                     "line": f.line,
                     "col": f.col,
@@ -166,7 +222,10 @@ def main(argv: list[str] | None = None) -> int:
                     "note": f.note,
                     "severity": f.severity,
                     "advice": f.advice,
-                })
+                }
+                if covered(bl.STORED, path, row):
+                    continue
+                results.append(row)
 
             if not args.no_controls:
                 # One floor, two ladders. `--min-severity` names a stored severity, and
@@ -175,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
                 for c in scan_controls(text).findings:
                     if RISK_ORDER.index(c.risk) < floor:
                         continue
-                    control_results.append({
+                    crow = {
                         "file": str(path),
                         "line": c.line,
                         "col": c.col,
@@ -189,7 +248,10 @@ def main(argv: list[str] | None = None) -> int:
                         "risk": c.risk,
                         "note": c.note,
                         "advice": c.advice,
-                    })
+                    }
+                    if covered(bl.CONTROL, path, crow):
+                        continue
+                    control_results.append(crow)
 
             if not args.no_source and path.suffix.lower() == ".py":
                 sreport = scan_source(text)
@@ -204,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
                         path.write_text(new_text, encoding="utf-8")
                         fixed_files.append((str(path), n))
                 for sf in sreport.findings:
-                    source_results.append({
+                    srow = {
                         "file": str(path),
                         "line": sf.line,
                         "col": sf.col,
@@ -215,14 +277,36 @@ def main(argv: list[str] | None = None) -> int:
                         "kind": sf.kind,
                         "fixable": bool(sf.fix),
                         "unfixable_why": sf.unfixable_why,
-                    })
+                    }
+                    if covered(bl.SOURCE, path, srow):
+                        continue
+                    source_results.append(srow)
+
+    if args.write_baseline:
+        # Recording what already exists is not a failure, so this exits 0 even though
+        # every one of these findings would otherwise have exited 1.
+        try:
+            document = bl.build(to_record, tool_version=_tool_version())
+            n = bl.save(args.write_baseline, document)
+        except OSError as exc:
+            print(f"arabic-lint: cannot write baseline {args.write_baseline}: {exc}",
+                  file=sys.stderr)
+            return 2
+        print(f"wrote {n} baseline entry(ies) covering {len(to_record)} finding(s) "
+              f"to {args.write_baseline} - {scanned} file(s) scanned{_skip_note(skipped)}.")
+        print("Run with --baseline to report only what is new from here.")
+        return 0
 
     if args.as_json:
-        json.dump({"scanned": scanned, "skipped": skipped, "findings": results,
+        payload = {"scanned": scanned, "skipped": skipped, "findings": results,
                    "control_findings": control_results,
                    "source_findings": source_results,
-                   "fixed": [{"file": f, "calls": n} for f, n in fixed_files]}, sys.stdout,
-                  ensure_ascii=False, indent=2)
+                   "fixed": [{"file": f, "calls": n} for f, n in fixed_files]}
+        if args.baseline:
+            payload["baseline"] = args.baseline
+            payload["suppressed"] = base.suppressed
+            payload["stale"] = base.stale
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
         return 1 if (results or control_results or source_results) else 0
 
@@ -273,7 +357,19 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{path}: not scanned - looks like text but is not valid UTF-8")
         print()
 
-    skipped_note = f", {len(skipped)} skipped (not valid UTF-8)" if skipped else ""
+    skipped_note = _skip_note(skipped)
+
+    # Printed whether or not anything is left to report. A baseline that silently
+    # hides work becomes permanent, which is how these files rot; and a team that
+    # has FIXED baselined text should be told so rather than never hearing about it.
+    baseline_note = ""
+    if args.baseline:
+        bits = [f"{base.suppressed} finding(s) suppressed by the baseline"]
+        if base.stale:
+            bits.append(f"{base.stale} baselined finding(s) no longer present "
+                        f"(fixed - prune them with --write-baseline)")
+        baseline_note = "; ".join(bits)
+
     unsafe = sum(1 for r in results if not r["safe_to_autofix"])
     parts = []
     if results:
@@ -293,12 +389,34 @@ def main(argv: list[str] | None = None) -> int:
                      + (" and could not be fixed mechanically" if args.fix else ""))
     if parts:
         print("; ".join(parts) + f" - in {scanned} file(s) scanned{skipped_note}.")
+        if baseline_note:
+            print(baseline_note + ".")
         return 1
     if fixed_files:
         print(f"all source findings fixed - {scanned} file(s) scanned{skipped_note}.")
+        if baseline_note:
+            print(baseline_note + ".")
+        return 0
+    if baseline_note:
+        print(f"no NEW findings - {scanned} file(s) scanned{skipped_note}.")
+        print(baseline_note + ".")
         return 0
     print(f"clean - {scanned} file(s) scanned{skipped_note}, no corrupted Arabic found.")
     return 0
+
+
+def _skip_note(skipped: list[str]) -> str:
+    return f", {len(skipped)} skipped (not valid UTF-8)" if skipped else ""
+
+
+def _tool_version() -> str:
+    """Recorded in the baseline so a stale format is traceable to a release."""
+    try:
+        from importlib.metadata import version
+
+        return version("arabic-lint")
+    except Exception:                                    # pragma: no cover - source tree
+        return ""
 
 
 if __name__ == "__main__":

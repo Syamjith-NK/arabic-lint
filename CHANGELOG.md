@@ -4,6 +4,34 @@ This file starts at 0.7.0. Releases before it are in the git history and in the
 [tags](https://github.com/Syamjith-NK/arabic-lint/tags); rather than reconstruct them
 from memory and get a date wrong, the record begins where it is accurate.
 
+## Unreleased
+
+### Added
+
+- **`--baseline` and `--write-baseline`** (closes #8), so a codebase that already has
+  findings can adopt the check and gate on what it adds next instead of having to fix
+  everything first. Covers all three checks — stored corruption, bidi controls and
+  source risk. `--json` carries `suppressed` and `stale`.
+
+  Design points that are load-bearing rather than cosmetic:
+
+  - Entries are keyed on **content, not position**: file + check + hash of the offending
+    span + grade. Moving code between lines neither resurrects an old entry nor hides a
+    new one.
+  - **Grade is inside the key**, so a `stray` glyph that later becomes part of a
+    `reshaped` run is reported as the new problem it is.
+  - **Identical findings are counted**, and suppression spends that count. One baselined
+    `U+200E` excuses exactly one.
+  - **Suppressions are always printed**, and baselined findings that are no longer
+    present are counted rather than being fatal — a team that fixed forty entries should
+    hear about it, and should not have its build broken for the improvement.
+  - Samples are stored as **escaped codepoints**. Writing raw presentation forms into a
+    `.json` baseline would mean the next scan found every one of them again, in a file no
+    entry covers: exit 1 for ever, on first use.
+
+  `--baseline` and `--write-baseline` together is a usage error, since it would suppress
+  findings in the same run that records them.
+
 ## 0.7.0
 
 ### Added
