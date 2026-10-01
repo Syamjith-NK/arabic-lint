@@ -170,6 +170,18 @@ def main():
     draw.text((0, 0), "hello")
 """
 
+# Issue #2's two-module shape. The helper contains the recipe and returns it, while
+# its caller owns the drawing call. Looking at either file through the old local-only
+# drawing gate returned clean.
+RETURNED_FROM_LIBRARY_HELPER = """
+import matplotlib.pyplot as plt
+import arabic_reshaper
+from bidi.algorithm import get_display
+
+def rtl_safe(text):
+    return get_display(arabic_reshaper.reshape(text))
+"""
+
 
 def test_flags_the_matplotlib_case():
     r = scan_source(MPL_BUG)
@@ -212,6 +224,21 @@ def test_names_the_renderer_that_actually_draws():
     r = scan_source(BOTH_IMPORTED_MPL_DRAWS)
     assert len(r.findings) == 1
     assert r.findings[0].sink == "matplotlib"
+
+
+def test_flags_preshape_returned_to_a_caller_in_another_module():
+    """A library helper's caller can own the drawing call (issue #2)."""
+    r = scan_source(RETURNED_FROM_LIBRARY_HELPER)
+    assert len(r.findings) == 1
+    assert r.findings[0].sink == "matplotlib"
+    assert "returned to a caller" in r.findings[0].reason
+
+
+def test_still_ignores_an_uncalled_script_helper():
+    """A top-level drawing call makes this a script; its other helper is dead."""
+    r = scan_source(DEAD_HELPER)
+    assert r.findings == []
+    assert any("never called" in reason for reason in r.skipped)
 
 
 # --- the bidi-only form (issue #1) ---------------------------------------------

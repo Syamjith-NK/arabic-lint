@@ -289,6 +289,37 @@ def scan_source(text: str) -> SourceReport:
             )
         return report
 
+    # A library helper can hand the pre-processed value to a drawing call in another
+    # module. Requiring a local drawing call made that common split invisible: the
+    # helper had the recipe and the caller had the sink, so each file discarded half
+    # of the evidence. Stay conservative for scripts, where an uncalled helper really
+    # is dead, and only report calls whose value is explicitly returned to a caller.
+    if not v.drawing and not _is_script(tree):
+        returned = [(call, kind) for call, kind in candidates
+                    if _is_returned(tree, call)]
+        if returned:
+            sink = shaping[0]
+            for call, kind in returned:
+                fix, why = _plan_fix(call, v, text, kind)
+                report.findings.append(
+                    SourceFinding(
+                        line=call.lineno,
+                        col=call.col_offset + 1,
+                        snippet=_snippet(lines, call.lineno),
+                        sink=sink,
+                        reason=(SHAPING_SINKS[sink] + REASON_TAIL[kind]
+                                + "; this value is returned to a caller, so the drawing "
+                                  "call may be in another module"),
+                        confidence="conditional",
+                        fix=fix,
+                        unfixable_why=why,
+                        end_line=getattr(call, "end_lineno", call.lineno),
+                        end_col=getattr(call, "end_col_offset", 0) + 1,
+                        kind=kind,
+                    )
+                )
+            return report
+
     # Order matters: classify the renderer first, then ask whether anything draws.
     # Checking "does it draw" first made the ReportLab branch unreachable and reported
     # a correct file with a misleading reason.
@@ -431,6 +462,15 @@ def _enclosing_func(tree: ast.AST, target: ast.AST) -> str | None:
                 if sub is target:
                     return node.name
     return None
+
+
+def _is_returned(tree: ast.AST, target: ast.AST) -> bool:
+    """Whether target is part of a value explicitly returned by a helper."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Return) and node.value is not None:
+            if any(sub is target for sub in ast.walk(node.value)):
+                return True
+    return False
 
 
 def apply_fixes(text: str, findings: list[SourceFinding]) -> tuple[str, int]:
