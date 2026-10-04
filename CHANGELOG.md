@@ -4,7 +4,7 @@ This file starts at 0.7.0. Releases before it are in the git history and in the
 [tags](https://github.com/Syamjith-NK/arabic-lint/tags); rather than reconstruct them
 from memory and get a date wrong, the record begins where it is accurate.
 
-## Unreleased
+## 0.8.0 - 2026-10-04
 
 ### Added
 
