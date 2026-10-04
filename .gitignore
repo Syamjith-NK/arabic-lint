@@ -11,3 +11,4 @@ venv/
 .relvenv/
 .tvenv/
 .tv/
+.testvenv/

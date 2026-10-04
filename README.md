@@ -241,8 +241,9 @@ Anything else in the block is deliberate. New Unicode additions classify themsel
 into Arabic text or into source. See
 [invisible bidi controls](#invisible-bidi-controls) below.
 
-**Source risk** (Python files) — the reshape+bidi recipe feeding a renderer that
-already shapes, which corrupts at *render* time before anything is stored:
+**Source risk** (Python files and notebook code cells) — the reshape+bidi recipe
+feeding a renderer that already shapes, which corrupts at *render* time before
+anything is stored:
 
 ```
 cogs/bear_track.py:715:16: pre-shaped text passed to matplotlib  [RENDERS REVERSED]
@@ -536,6 +537,35 @@ Flagging those would be the ornate-parentheses mistake in a different block.
 `--fix` never touches a control. Whether one belongs in a document is a question about
 the document, not about the character. Pass `--no-controls` to turn the check off.
 
+## Jupyter notebooks
+
+`.ipynb` is scanned like any other file, and findings name the **cell**:
+
+```
+analysis.ipynb:cell2:5:11: pre-shaped text passed to matplotlib  [RENDERS REVERSED]
+    plt.title(get_display(arabic_reshaper.reshape('مرحبا بالعالم')))
+analysis.ipynb:cell3:1:10: 4 Arabic presentation forms stored [partial]
+analysis.ipynb:cell3:1:1 (output): 4 Arabic presentation forms stored [partial]
+```
+
+Notebooks matter more than their share of the code: the recipe is copied between
+notebooks far more than between modules, because it is the thing someone pastes from
+an answer to make one chart work.
+
+Three things worth knowing:
+
+- **The same corruption is reported twice** — once in the cell source and once in the
+  committed output — because a notebook stores both. The `(output)` label is there
+  because you cannot fix an output by editing it; fix the code above and re-run.
+- **Cells that are not Python are fine.** `%matplotlib inline` and `!pip install` cost a
+  quiet skip, not a crash and not a false finding.
+- **`--fix` will not rewrite a notebook.** Changing one cell means re-dumping the whole
+  JSON, which reformats every untouched cell and buries a one-line fix in a whole-file
+  diff. It tells you which cell to edit instead.
+
+Reading needs no new dependency — a notebook is JSON, so `nbformat` is not required and
+the tool still installs with nothing behind it.
+
 ## Known limits
 
 - **Balance is computed per paragraph**, which is what the bidirectional algorithm
@@ -553,6 +583,9 @@ the document, not about the character. Pass `--no-controls` to turn the check of
 - The stored check only sees corruption that is *already written down*. The source
   check is what looks ahead at code that will create some, and `--doctor` is what
   answers it for the environment actually doing the rendering.
+- **Notebook image and HTML outputs are not scanned.** A base64 PNG cannot contain the
+  Arabic this looks for, and reading it would make every notebook with a chart slow for
+  nothing. Text, `text/plain` and tracebacks are scanned.
 - **Pure reordering is invisible to it, whatever produced it.** Reshaping leaves codepoints
   that authored Arabic never contains, so it is detectable; reordering leaves the *same*
   codepoints in a different order, so nothing here can flag it. A live example: pypdf

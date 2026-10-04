@@ -8,6 +8,40 @@ from memory and get a date wrong, the record begins where it is accurate.
 
 ### Added
 
+- **Jupyter notebooks are scanned** (closes #7). `.ipynb` was not in `TEXT_SUFFIXES`, so a
+  directory containing a notebook reported `0 file(s) scanned` — and notebooks are where
+  plotting code actually lives. Naming the file explicitly did reach it, but only the
+  stored check applied: the source check is gated on a `.py` suffix, so the
+  `get_display(reshape(...))` call feeding `plt.title()` in the next cell was never
+  examined.
+
+  A notebook is JSON, so the reader is `json` from the standard library in a new
+  `notebook.py` — `nbformat` is not needed and the zero-dependency promise survives.
+
+  Design points that are load-bearing rather than cosmetic:
+
+  - Findings report **cell and line within that cell** (`nb.ipynb:cell2:5:11`), not a
+    position in the file. Scanning the raw JSON does find the stored forms, because they
+    sit in the JSON as literal characters, but it reports a column inside a one-line blob
+    — somewhere no reader can go and act.
+  - **Outputs are scanned and labelled `(output)`.** A notebook stores its corruption
+    twice: once in the code that produced it and once in the rendered output committed
+    beside it. The label matters because an output cannot be fixed by editing it; it is
+    regenerated from the code above.
+  - **Image and HTML outputs are skipped.** A base64 PNG is megabytes that cannot contain
+    Arabic, and scanning it would make every notebook with a chart slow for nothing.
+  - **A cell that does not parse costs a quiet skip**, never a crash or a false finding.
+    `%matplotlib inline` and `!pip install` are normal and are not valid Python;
+    `scan_source` already records a skip rather than raising.
+  - **Markdown cells are scanned for stored corruption** but never for source risk.
+  - **`--fix` refuses to rewrite a notebook**, and says which cell to edit. Rewriting one
+    cell means re-dumping the whole notebook JSON, which reformats every untouched cell
+    and buries a one-line fix in a whole-file diff.
+  - **A `.ipynb` that cannot be read is reported as skipped, not counted as clean.** Same
+    rule as a file that will not decode: silence reads as "scanned and clean", which is
+    the one thing a linter must not say about a file it never read.
+
+
 - **`--baseline` and `--write-baseline`** (closes #8), so a codebase that already has
   findings can adopt the check and gate on what it adds next instead of having to fix
   everything first. Covers all three checks — stored corruption, bidi controls and
