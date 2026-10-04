@@ -146,6 +146,42 @@ knowing before you turn either of these on:
   source file: see
   [which fix is correct depends on your dependency floor](#which-fix-is-correct-depends-on-your-dependency-floor).
 
+## Adopting it on a codebase that already has findings
+
+The exit code is binary, so on an existing repository the check fails on day one and
+the usual outcome is that nobody turns it on. Record what is already there, then gate
+on what gets added next:
+
+```bash
+arabic-lint . --write-baseline .arabic-lint-baseline.json   # what exists today
+arabic-lint . --baseline .arabic-lint-baseline.json         # fail only on what is new
+```
+
+```
+no NEW findings - 412 file(s) scanned.
+2 finding(s) suppressed by the baseline.
+```
+
+Commit the baseline. Four things about it are deliberate:
+
+- **Entries are keyed on content, not on line numbers.** Adding an import at the top of
+  a file does not resurrect an entry, and does not hide a new one either.
+- **The grade is part of the key.** A stray glyph that later grows into a `reshaped` run
+  is a new problem in the same file, and is reported.
+- **Identical findings are counted, not collapsed.** One baselined `U+200E` excuses one,
+  not any number of them.
+- **Suppressions are always printed**, and a baselined finding that has since been fixed
+  is counted as no longer present. Silence about what a baseline hides is how these
+  files quietly become permanent; prune them by regenerating.
+
+Paths inside the file are relative to the baseline itself, so it means the same thing
+whether CI runs from the repository root or a subdirectory. Samples are stored as
+escaped codepoints (`U+FEE3 U+FE8E`) rather than raw text — the file would otherwise be
+full of presentation forms and the next scan would report every one of them.
+
+`--min-severity` still applies while writing, so `--write-baseline --min-severity
+reshaped` records only pipeline damage and leaves stray glyphs reportable.
+
 ## Which case are you in?
 
 The findings below all depend on what draws your text, and that is not knowable by
