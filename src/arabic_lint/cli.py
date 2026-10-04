@@ -36,12 +36,14 @@ from .controls import scan_controls, RISK_ORDER
 from .source import scan_source, apply_fixes, HEADLINE
 from .doctor import report as doctor_report
 from . import baseline as bl
+from . import notebook as nbmod
 
 TEXT_SUFFIXES = {
     ".txt", ".json", ".jsonl", ".csv", ".tsv", ".md", ".yml", ".yaml",
     ".xml", ".html", ".htm", ".svg", ".po", ".properties", ".strings",
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".swift",
     ".php", ".rb", ".go", ".rs", ".c", ".h", ".cpp", ".cs", ".sql",
+    ".ipynb",
 }
 
 DEFAULT_EXCLUDES = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
@@ -86,6 +88,61 @@ def iter_files(root: Path, excludes: set[str]):
             continue
         if p.suffix.lower() in TEXT_SUFFIXES:
             yield p
+
+
+class Unit:
+    """One stretch of text to scan, and where it came from.
+
+    A plain file is a single unit covering the whole file. A notebook is many:
+    one per cell source, plus one per cell's text outputs. Scanning per unit is
+    what lets a finding say *cell 3, line 2* instead of a column offset inside
+    one line of JSON.
+    """
+
+    __slots__ = ("text", "cell", "origin", "is_code")
+
+    def __init__(self, text: str, cell: int | None = None,
+                 origin: str = "", is_code: bool = False):
+        self.text = text
+        self.cell = cell
+        self.origin = origin        # "" | "source" | "output"
+        self.is_code = is_code
+
+    def loc(self) -> dict:
+        """Extra row keys. Absent for a plain file, so existing output and the
+        baseline's row shape are untouched when no notebook is involved."""
+        if self.cell is None:
+            return {}
+        return {"cell": self.cell, "origin": self.origin}
+
+
+def units_for(path: Path, text: str) -> list[Unit]:
+    """Split a file into scannable units. Raises NotebookError for an .ipynb
+    that cannot be read, so the caller can report it as skipped rather than
+    counting it as scanned and clean."""
+    if path.suffix.lower() != ".ipynb":
+        return [Unit(text)]
+    nb = nbmod.parse(text)
+    units: list[Unit] = []
+    for c in nb.cells:
+        if c.source:
+            units.append(Unit(c.source, cell=c.index, origin="source",
+                              is_code=(c.cell_type == "code")))
+        if c.outputs:
+            # Marked as an output because a reader cannot fix it by editing it;
+            # it is regenerated from the code above. Never source-scanned: an
+            # output is not code, and a traceback full of Python would parse as
+            # some of it.
+            units.append(Unit(c.outputs, cell=c.index, origin="output"))
+    return units
+
+
+def where(row: dict) -> str:
+    """file:line:col, or file:cellN:line:col inside a notebook."""
+    if row.get("cell") is None:
+        return f"{row['file']}:{row['line']}:{row['col']}"
+    tail = " (output)" if row.get("origin") == "output" else ""
+    return f"{row['file']}:cell{row['cell']}:{row['line']}:{row['col']}{tail}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -205,82 +262,114 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             except OSError:
                 continue
+            try:
+                units = units_for(path, text)
+            except nbmod.NotebookError as exc:
+                # Same rule as a file that would not decode: saying nothing
+                # reads as "scanned and clean", which is the one thing a linter
+                # must not say about a file it never read.
+                skipped.append(f"{path} ({exc})")
+                continue
+
             scanned += 1
-            report = scan_text(text)
             floor = SEVERITY_ORDER.index(args.min_severity)
-            for f in report.findings:
-                if SEVERITY_ORDER.index(f.severity) < floor:
-                    continue
-                row = {
-                    "file": str(path),
-                    "line": f.line,
-                    "col": f.col,
-                    "presentation_forms": f.n_presentation,
-                    "text": f.text,
-                    "recovered": f.recovered,
-                    "safe_to_autofix": f.recoverable,
-                    "note": f.note,
-                    "severity": f.severity,
-                    "advice": f.advice,
-                }
-                if covered(bl.STORED, path, row):
-                    continue
-                results.append(row)
+            for unit in units:
+                for f in scan_text(unit.text).findings:
+                    if SEVERITY_ORDER.index(f.severity) < floor:
+                        continue
+                    row = {
+                        "file": str(path),
+                        **unit.loc(),
+                        "line": f.line,
+                        "col": f.col,
+                        "presentation_forms": f.n_presentation,
+                        "text": f.text,
+                        "recovered": f.recovered,
+                        "safe_to_autofix": f.recoverable,
+                        "note": f.note,
+                        "severity": f.severity,
+                        "advice": f.advice,
+                    }
+                    if covered(bl.STORED, path, row):
+                        continue
+                    results.append(row)
 
             if not args.no_controls:
                 # One floor, two ladders. `--min-severity` names a stored severity, and
                 # the control risks sit at the same three positions, so the index is
                 # what carries across rather than the word.
-                for c in scan_controls(text).findings:
-                    if RISK_ORDER.index(c.risk) < floor:
-                        continue
-                    crow = {
-                        "file": str(path),
-                        "line": c.line,
-                        "col": c.col,
-                        "offset": c.offset,
-                        "codepoint": f"U+{c.codepoint:04X}",
-                        "name": c.name,
-                        "kind": c.kind,
-                        "bidi_class": c.bidi_class,
-                        "balanced": c.balanced,
-                        "partner_offset": c.partner_offset,
-                        "risk": c.risk,
-                        "note": c.note,
-                        "advice": c.advice,
-                    }
-                    if covered(bl.CONTROL, path, crow):
-                        continue
-                    control_results.append(crow)
+                for unit in units:
+                    for c in scan_controls(unit.text).findings:
+                        if RISK_ORDER.index(c.risk) < floor:
+                            continue
+                        crow = {
+                            "file": str(path),
+                            **unit.loc(),
+                            "line": c.line,
+                            "col": c.col,
+                            "offset": c.offset,
+                            "codepoint": f"U+{c.codepoint:04X}",
+                            "name": c.name,
+                            "kind": c.kind,
+                            "bidi_class": c.bidi_class,
+                            "balanced": c.balanced,
+                            "partner_offset": c.partner_offset,
+                            "risk": c.risk,
+                            "note": c.note,
+                            "advice": c.advice,
+                        }
+                        if covered(bl.CONTROL, path, crow):
+                            continue
+                        control_results.append(crow)
 
-            if not args.no_source and path.suffix.lower() == ".py":
-                sreport = scan_source(text)
-                if args.fix and any(f.fix for f in sreport.findings):
-                    new_text, n = apply_fixes(text, sreport.findings)
-                    try:
-                        compile(new_text, str(path), "exec")
-                    except SyntaxError as exc:
-                        print(f"arabic-lint: refusing to write {path}: the rewrite "
-                              f"would not parse ({exc.msg})", file=sys.stderr)
-                    else:
-                        path.write_text(new_text, encoding="utf-8")
-                        fixed_files.append((str(path), n))
-                for sf in sreport.findings:
-                    srow = {
-                        "file": str(path),
-                        "line": sf.line,
-                        "col": sf.col,
-                        "sink": sf.sink,
-                        "snippet": sf.snippet,
-                        "reason": sf.reason,
-                        "confidence": sf.confidence,
-                        "kind": sf.kind,
-                        "fixable": bool(sf.fix),
-                        "unfixable_why": sf.unfixable_why,
-                    }
-                    if covered(bl.SOURCE, path, srow):
-                        continue
-                    source_results.append(srow)
+            is_py = path.suffix.lower() == ".py"
+            is_nb = path.suffix.lower() == ".ipynb"
+            if not args.no_source and (is_py or is_nb):
+                # A notebook's code lives in cells, so each cell is parsed on its
+                # own. A cell holding `%matplotlib inline` or `!pip install` is
+                # not valid Python and is normal; scan_source already records a
+                # skip rather than raising, so a magic costs a quiet skip and
+                # never a crash or a false finding.
+                src_units = ([Unit(text)] if is_py
+                             else [u for u in units if u.is_code])
+                for unit in src_units:
+                    sreport = scan_source(unit.text)
+                    if args.fix and any(f.fix for f in sreport.findings):
+                        if is_nb:
+                            # Rewriting a cell means re-dumping the whole notebook
+                            # JSON, which reformats every untouched cell and buries
+                            # a one-line fix in a whole-file diff. Refuse and say
+                            # so, rather than hand someone an unreviewable change.
+                            print(f"arabic-lint: not fixing {path}: --fix does not "
+                                  f"rewrite notebooks (it would reformat every cell). "
+                                  f"Edit cell {unit.cell} by hand.", file=sys.stderr)
+                        else:
+                            new_text, n = apply_fixes(unit.text, sreport.findings)
+                            try:
+                                compile(new_text, str(path), "exec")
+                            except SyntaxError as exc:
+                                print(f"arabic-lint: refusing to write {path}: the rewrite "
+                                      f"would not parse ({exc.msg})", file=sys.stderr)
+                            else:
+                                path.write_text(new_text, encoding="utf-8")
+                                fixed_files.append((str(path), n))
+                    for sf in sreport.findings:
+                        srow = {
+                            "file": str(path),
+                            **unit.loc(),
+                            "line": sf.line,
+                            "col": sf.col,
+                            "sink": sf.sink,
+                            "snippet": sf.snippet,
+                            "reason": sf.reason,
+                            "confidence": sf.confidence,
+                            "kind": sf.kind,
+                            "fixable": bool(sf.fix),
+                            "unfixable_why": sf.unfixable_why,
+                        }
+                        if covered(bl.SOURCE, path, srow):
+                            continue
+                        source_results.append(srow)
 
     if args.write_baseline:
         # Recording what already exists is not a failure, so this exits 0 even though
@@ -313,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.quiet:
         for r in results:
             flag = "" if r["safe_to_autofix"] else "  [UNSAFE TO AUTO-FIX]"
-            print(f"{r['file']}:{r['line']}:{r['col']}: "
+            print(f"{where(r)}: "
                   f"{r['presentation_forms']} Arabic presentation forms stored "
                   f"[{r['severity']}]{flag}")
             print(f"    found     : {r['text']}")
@@ -324,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         for r in control_results:
-            print(f"{r['file']}:{r['line']}:{r['col']}: {r['codepoint']} {r['name']} "
+            print(f"{where(r)}: {r['codepoint']} {r['name']} "
                   f"[{r['risk']}]")
             print(f"    kind      : {r['kind']} (bidi class {r['bidi_class']}), "
                   f"offset {r['offset']}")
@@ -334,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         for r in source_results:
-            print(f"{r['file']}:{r['line']}:{r['col']}: {HEADLINE[r['kind']]} "
+            print(f"{where(r)}: {HEADLINE[r['kind']]} "
                   f"{r['sink']}  [RENDERS REVERSED]")
             print(f"    {r['snippet']}")
             print(f"    {r['reason']}")
