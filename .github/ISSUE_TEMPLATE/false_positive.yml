@@ -1,0 +1,34 @@
+name: False positive
+description: The tool reported Arabic or code that is actually fine.
+title: "False positive: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: file
+    attributes:
+      label: Smallest file that reproduces it
+      description: Paste the file or a link. This is the most useful report the project gets.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Command and output
+      description: The argv you ran, and what arabic-lint printed.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of arabic-lint --doctor
+      description: Needed when the finding is about a renderer. Skip it for stored text.
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: What this text is supposed to be
+      description: If it was written by a pipeline, say which one.
+    validations:
+      required: true

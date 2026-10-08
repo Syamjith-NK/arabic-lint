@@ -4,6 +4,32 @@ This file starts at 0.7.0. Releases before it are in the git history and in the
 [tags](https://github.com/Syamjith-NK/arabic-lint/tags); rather than reconstruct them
 from memory and get a date wrong, the record begins where it is accurate.
 
+## Unreleased
+
+On `main`, after 0.8.0. Not on PyPI until the next tag.
+
+### Added
+
+- **wordcloud is a drawing sink.** `generate`, `generate_from_text`, and
+  `generate_from_frequencies` count as draws when the file imports `wordcloud`.
+  `generate` counts only when the receiver is a `WordCloud`, so `model.generate()`
+  stays silent even if wordcloud is imported. Constructing `WordCloud` without
+  generating stays silent. A matplotlib import used only for a colormap is not the
+  sink: the finding names wordcloud, and the reason names Pillow.
+
+- **A helper that returns the recipe is reported.** A library function that returns
+  the pre-shaped string is reported at low confidence (`[LOW]`) when that file
+  imports matplotlib or Pillow, even if nothing in the file draws. `--fix` does not
+  rewrite it. A script that prints the result, and an uncalled helper, stay silent.
+  `if __name__ == "__main__"` does not hide the return. When several files are
+  scanned together, a caller that imports the helper and passes the result to a
+  drawing call is reported even if the helper imports no renderer. Matplotlib
+  imported in a file that never calls the helper does not flag the helper. A helper
+  that only imports wordcloud and returns the recipe stays silent until a scanned
+  caller generates.
+
+Notebook scanning is in 0.8.0, below. It is already released.
+
 ## 0.8.0 - 2026-10-04
 
 ### Added

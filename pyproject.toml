@@ -1,21 +1,45 @@
 [build-system]
-requires = ["setuptools>=68"]
+# setuptools 77 understands the PEP 639 `license-files` key below.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "arabic-lint"
 version = "0.8.0"
-description = "Find Arabic text corrupted by reshape+bidi before it was stored, and the invisible bidi controls left in it. Zero dependencies."
+description = "Find Arabic text corrupted by arabic_reshaper + python-bidi before it was stored. Zero dependencies."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Syamjith NK", email = "hello@syamjithnk.com" }]
-keywords = ["arabic", "unicode", "bidi", "linter", "i18n", "rtl", "text-shaping"]
+keywords = [
+    "arabic",
+    "arabic-reshaper",
+    "bidi",
+    "i18n",
+    "jupyter",
+    "linter",
+    "localization",
+    "pre-commit",
+    "python-bidi",
+    "rtl",
+    "text-shaping",
+    "unicode",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
     "Natural Language :: Arabic",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Internationalization",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Text Processing :: Linguistic",
 ]
@@ -30,13 +54,15 @@ dependencies = []
 [project.optional-dependencies]
 test = ["pytest", "arabic-reshaper", "python-bidi"]
 
-# The sidebar is the only part of a PyPI page most visitors read. The two links added
-# below are the evidence behind the tool's severity bands, not promotion: the archived
-# audit is what the bands were derived from, and the DOI is the form of it that can be
-# cited. Keeping them here means the citable artifact is one click from the install page.
+# The sidebar is the only part of a PyPI page most visitors read. The audit links
+# are the evidence behind the severity bands, not promotion: the archived audit is
+# what the bands were derived from, and the DOI is the form of it that can be cited.
 [project.urls]
 Homepage = "https://github.com/Syamjith-NK/arabic-lint"
 Issues = "https://github.com/Syamjith-NK/arabic-lint/issues"
+# The GitHub website field points here. It is the write-up of the matplotlib finding,
+# distinct from the corpus-audit write-up below.
+"Why the recipe breaks" = "https://syamjith-nk.github.io/arabic-reshape-bidi-is-now-the-bug/"
 # Deliberately not called "Documentation": the README is the documentation, and this is a
 # write-up of how the audit was run, including the false positive it produced first.
 "Write-up" = "https://syamjith-nk.github.io/is-arabic-training-data-corrupted/"

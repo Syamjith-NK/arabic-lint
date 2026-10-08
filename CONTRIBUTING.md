@@ -4,6 +4,10 @@ Bug reports, renderer knowledge and real-world test cases are all welcome. This 
 is short because most of what a contributor needs to know is one rule about
 dependencies and one rule about evidence.
 
+Use the templates in `.github/ISSUE_TEMPLATE/`. A false positive is the most useful
+report this project can get: include the smallest file, the command output, and
+`arabic-lint --doctor` when the finding is about a renderer.
+
 ## Running the tests
 
 ```bash
@@ -128,6 +132,24 @@ the README:
 - **Arabic word ligatures and the ornate Quranic parentheses are not corruption
   signals.** They live inside the same Unicode block as the positional forms, and
   treating the block as a signal reports Islamic heritage text as broken.
+
+## Releasing
+
+Publishing is a tag push, not a token in `~/.pypirc`.
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml) runs on tags that
+look like `v1.2.3`, tests, builds, and uploads to PyPI with a trusted publisher
+(OIDC). It refuses the tag if it does not match `version` in `pyproject.toml`.
+
+Before the first tag that uses it, two settings have to exist outside this repo:
+
+1. On PyPI, the `arabic-lint` project, a trusted publisher: owner `Syamjith-NK`,
+   repository `arabic-lint`, workflow `publish.yml`, environment name `pypi`.
+2. On GitHub, an environment named `pypi`. The workflow names it so the upload can
+   be required to wait for a reviewer. Create it empty if you do not want that wait;
+   the name still has to match.
+
+Then: write the changelog entry, bump `version`, tag `v` plus that version, and
+push the tag. Do not also upload the same files with twine.
 
 ## Pull requests
 
