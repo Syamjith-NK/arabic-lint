@@ -17,10 +17,13 @@ Exit codes:
     1  corrupted Arabic found
     2  usage / IO error
 
-The source check is deliberately quiet. It reports only where a shaping renderer is
-imported AND something in the file actually draws with it, so ReportLab, terminal
-output and dead helpers stay silent. Flagging every occurrence of the recipe would
-mean thousands of false positives, and a checker nobody trusts is worse than none.
+The source check is deliberately quiet. It reports where a shaping renderer is
+imported and something in the file draws with it, and, at low confidence, a library
+function that returns the pre-shaped string when that same file imports matplotlib
+or Pillow. ReportLab, terminal output and dead helpers in scripts stay silent. A
+shaping import in some other file is not evidence. Flagging every occurrence of
+the recipe would mean thousands of false positives, and a checker nobody trusts
+is worse than none.
 """
 
 from __future__ import annotations
@@ -33,7 +36,9 @@ from pathlib import Path
 
 from .detect import scan_text, SEVERITY_ORDER
 from .controls import scan_controls, RISK_ORDER
-from .source import scan_source, apply_fixes, HEADLINE
+from .source import (
+    scan_source, apply_fixes, HEADLINE, returned_helpers, helpers_imported,
+)
 from .doctor import report as doctor_report
 from . import baseline as bl
 from . import notebook as nbmod
@@ -145,6 +150,71 @@ def where(row: dict) -> str:
     return f"{row['file']}:cell{row['cell']}:{row['line']}:{row['col']}{tail}"
 
 
+def _scan_sources(pending: list[tuple[Path, "Unit"]], args, covered,
+                  source_results: list[dict], fixed_files: list[tuple[str, int]]) -> None:
+    """Scan Python and notebook code once every returned helper is known.
+
+    Exports are collected from `.py` files first, then each unit is scanned with
+    the imports it actually resolved. A matplotlib import in a file that does not
+    call the helper adds nothing.
+    """
+    exports: dict[Path, dict[str, str]] = {}
+    for path, unit in pending:
+        if path.suffix.lower() != ".py":
+            continue
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key not in exports:
+            exports[key] = returned_helpers(unit.text)
+
+    for path, unit in pending:
+        try:
+            importer = path.resolve()
+        except OSError:
+            importer = path
+        linked = helpers_imported(unit.text, importer, exports)
+        sreport = scan_source(unit.text, linked)
+        is_nb = path.suffix.lower() == ".ipynb"
+        if args.fix and any(f.fix for f in sreport.findings):
+            if is_nb:
+                # Rewriting a cell means re-dumping the whole notebook
+                # JSON, which reformats every untouched cell and buries
+                # a one-line fix in a whole-file diff. Refuse and say
+                # so, rather than hand someone an unreviewable change.
+                print(f"arabic-lint: not fixing {path}: --fix does not "
+                      f"rewrite notebooks (it would reformat every cell). "
+                      f"Edit cell {unit.cell} by hand.", file=sys.stderr)
+            else:
+                new_text, n = apply_fixes(unit.text, sreport.findings)
+                try:
+                    compile(new_text, str(path), "exec")
+                except SyntaxError as exc:
+                    print(f"arabic-lint: refusing to write {path}: the rewrite "
+                          f"would not parse ({exc.msg})", file=sys.stderr)
+                else:
+                    path.write_text(new_text, encoding="utf-8")
+                    fixed_files.append((str(path), n))
+        for sf in sreport.findings:
+            srow = {
+                "file": str(path),
+                **unit.loc(),
+                "line": sf.line,
+                "col": sf.col,
+                "sink": sf.sink,
+                "snippet": sf.snippet,
+                "reason": sf.reason,
+                "confidence": sf.confidence,
+                "kind": sf.kind,
+                "fixable": bool(sf.fix),
+                "unfixable_why": sf.unfixable_why,
+            }
+            if covered(bl.SOURCE, path, srow):
+                continue
+            source_results.append(srow)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="arabic-lint",
@@ -240,6 +310,10 @@ def main(argv: list[str] | None = None) -> int:
     fixed_files: list[tuple[str, int]] = []
     skipped: list[str] = []
     scanned = 0
+    # Source is scanned after the walk, once every file's returned helpers are
+    # known. Linking during the walk would miss a helper that sorts after its
+    # caller. The link is the import, not "matplotlib was imported somewhere".
+    pending_source: list[tuple[Path, Unit]] = []
 
     for root in args.paths:
         if not root.exists():
@@ -333,43 +407,9 @@ def main(argv: list[str] | None = None) -> int:
                 src_units = ([Unit(text)] if is_py
                              else [u for u in units if u.is_code])
                 for unit in src_units:
-                    sreport = scan_source(unit.text)
-                    if args.fix and any(f.fix for f in sreport.findings):
-                        if is_nb:
-                            # Rewriting a cell means re-dumping the whole notebook
-                            # JSON, which reformats every untouched cell and buries
-                            # a one-line fix in a whole-file diff. Refuse and say
-                            # so, rather than hand someone an unreviewable change.
-                            print(f"arabic-lint: not fixing {path}: --fix does not "
-                                  f"rewrite notebooks (it would reformat every cell). "
-                                  f"Edit cell {unit.cell} by hand.", file=sys.stderr)
-                        else:
-                            new_text, n = apply_fixes(unit.text, sreport.findings)
-                            try:
-                                compile(new_text, str(path), "exec")
-                            except SyntaxError as exc:
-                                print(f"arabic-lint: refusing to write {path}: the rewrite "
-                                      f"would not parse ({exc.msg})", file=sys.stderr)
-                            else:
-                                path.write_text(new_text, encoding="utf-8")
-                                fixed_files.append((str(path), n))
-                    for sf in sreport.findings:
-                        srow = {
-                            "file": str(path),
-                            **unit.loc(),
-                            "line": sf.line,
-                            "col": sf.col,
-                            "sink": sf.sink,
-                            "snippet": sf.snippet,
-                            "reason": sf.reason,
-                            "confidence": sf.confidence,
-                            "kind": sf.kind,
-                            "fixable": bool(sf.fix),
-                            "unfixable_why": sf.unfixable_why,
-                        }
-                        if covered(bl.SOURCE, path, srow):
-                            continue
-                        source_results.append(srow)
+                    pending_source.append((path, unit))
+
+    _scan_sources(pending_source, args, covered, source_results, fixed_files)
 
     if args.write_baseline:
         # Recording what already exists is not a failure, so this exits 0 even though
@@ -423,8 +463,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         for r in source_results:
-            print(f"{where(r)}: {HEADLINE[r['kind']]} "
-                  f"{r['sink']}  [RENDERS REVERSED]")
+            # Low confidence means the pre-shaped value leaves this file and we
+            # have not seen the draw. Saying it renders reversed would overclaim.
+            tag = "  [LOW]" if r["confidence"] == "low" else "  [RENDERS REVERSED]"
+            print(f"{where(r)}: {HEADLINE[r['kind']]} {r['sink']}{tag}")
             print(f"    {r['snippet']}")
             print(f"    {r['reason']}")
             if r["unfixable_why"]:
