@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Why the recipe is now the bug
+    url: https://syamjith-nk.github.io/arabic-reshape-bidi-is-now-the-bug/
+    about: Measurements behind the matplotlib and Pillow finding.

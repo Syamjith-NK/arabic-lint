@@ -1,25 +1,120 @@
 # arabic-lint
 
-Finds Arabic text that was corrupted **before it was stored** — in your JSON, your
-localisation files, your database exports, your source code.
+[![CI](https://github.com/Syamjith-NK/arabic-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/Syamjith-NK/arabic-lint/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/arabic-lint)](https://pypi.org/project/arabic-lint/)
+[![Python versions](https://img.shields.io/pypi/pyversions/arabic-lint)](https://pypi.org/project/arabic-lint/)
+[![License: MIT](https://img.shields.io/github/license/Syamjith-NK/arabic-lint)](LICENSE)
+
+The recipe `get_display(arabic_reshaper.reshape(text))` writes Arabic that still
+looks Arabic and is not the string you typed. The file holds presentation-form
+codepoints, so comparisons, tokenizers, and search miss it. `arabic-lint` finds
+that text in JSON, localisation files, source, and notebooks.
+
+| you typed | stored after the recipe | `arabic-lint` |
+|---|---|---|
+| `مرحبا` | `ﺎﺒﺣﺮﻣ` | flagged |
+| `الإمارات العربية المتحدة` | `ﺓﺪﺤﺘﻤﻟﺍ ﺔﻴﺑﺮﻌﻟﺍ ﺕﺍﺭﺎﻣﻹﺍ` | flagged, and unsafe to undo |
+
+Those pairs are [`demo/strings.json`](demo/strings.json). The clean strings in that
+file (`موافق`, the title as typed) are not reported. The second row contains a
+lam-alef ligature, so the recovery the tool prints is a different word. It shows
+that candidate and does not rewrite the file.
 
 ```bash
-pip install arabic-lint
-arabic-lint ./src
+pip install arabic-lint && arabic-lint .
 ```
 
+Exit code 1 when anything is found, so the same command is a CI check.
+MIT. **Zero dependencies.** Python 3.9+.
+
 ```
-src/strings.json:3:20: 21 Arabic presentation forms stored  [UNSAFE TO AUTO-FIX]
+demo/strings.json:3:20: 21 Arabic presentation forms stored [reshaped]  [UNSAFE TO AUTO-FIX]
     found     : ﺓﺪﺤﺘﻤﻟﺍ ﺔﻴﺑﺮﻌﻟﺍ ﺕﺍﺭﺎﻣﻹﺍ
     would be  : اإلمارات العربية المتحدة
-    contains a lam-alef ligature; NFKC decomposition reorders the pair, so this
-    recovery is wrong even though it looks like Arabic
-
-3 corrupted span(s) in 1 file(s); 1 cannot be auto-fixed safely.
+    a long run of presentation forms: a shaping pass ran over this text before it was stored. The pipeline that wrote this file is the problem, and every other file it touched needs checking.
+    contains a lam-alef ligature; NFKC decomposition reorders the pair, so this recovery is wrong even though it looks like Arabic
 ```
 
-Exit code 1 when anything is found, so it drops into CI unchanged.
-MIT. **Zero dependencies.** Python 3.9+.
+## Add it
+
+### pre-commit
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/Syamjith-NK/arabic-lint
+    rev: v0.8.0  # a real tag; `pre-commit autoupdate` bumps it
+    hooks:
+      - id: arabic-lint
+```
+
+```bash
+pre-commit install && pre-commit run arabic-lint --all-files
+```
+
+The hook installs into pre-commit's own environment. There is nothing to resolve,
+because the package has no dependencies. The default hook fails on a reshaped run
+(five or more presentation forms), not on one pasted glyph. Use
+`id: arabic-lint-strict` when a single form should fail the commit too. Why that
+default exists: [severity](#severity-one-pasted-glyph-is-not-a-destroyed-corpus).
+
+### GitHub Actions
+
+```yaml
+# .github/workflows/arabic-lint.yml
+name: arabic-lint
+on: [push, pull_request]
+jobs:
+  arabic-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Syamjith-NK/arabic-lint@v0.8.0
+```
+
+Pin a tag. Inputs, all optional: `path` (default `.`), `min-severity` (default
+`reshaped`), `args`, and `version` to install a PyPI release instead of the code
+at the ref.
+
+```yaml
+      - uses: Syamjith-NK/arabic-lint@v0.8.0
+        with:
+          path: locales
+          min-severity: stray
+          args: --exclude vendor --exclude fixtures
+```
+
+Or skip the action and call the package directly:
+
+```yaml
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install arabic-lint && arabic-lint . --min-severity reshaped
+```
+
+The job fails on findings, because that is what exit code 1 is for. Two limits,
+before you turn it on:
+
+- **The severity gate applies to stored text.** A source finding, the reshape+bidi
+  recipe feeding a renderer that already shapes, is not graded by severity and is
+  always reported. That check is quiet by design and does not fire on the files
+  where the recipe is the right thing to do.
+- **`--fix` is not in these snippets**, and should not be. Which repair is right
+  depends on whether you control your dependency floor:
+  [which fix is correct](#which-fix-is-correct-depends-on-your-dependency-floor).
+
+A repository that already has findings can record them and fail only on what is
+new. The file format is [below](#adopting-it-on-a-codebase-that-already-has-findings).
+
+```bash
+arabic-lint . --write-baseline .arabic-lint-baseline.json
+arabic-lint . --baseline .arabic-lint-baseline.json
+```
+
+The rest of this file is why the check is shaped this way: what was measured,
+what is deliberately not a finding, and when deleting the call is the wrong fix.
 
 ## Does this actually happen in the wild?
 
@@ -80,71 +175,6 @@ same alarm as a team whose corpus was destroyed, and then they switch the alarm 
 ```bash
 arabic-lint . --min-severity reshaped     # fail CI only on pipeline damage
 ```
-
-## Run it on commit, or in CI
-
-Corruption at rest is cheap to catch and expensive to find later, because by the time
-anyone notices, the pipeline that produced it has written the same text into several
-other places. Both integrations below default to the `reshaped` gate for the reason in
-the table above.
-
-### pre-commit
-
-```yaml
-# .pre-commit-config.yaml
-repos:
-  - repo: https://github.com/Syamjith-NK/arabic-lint
-    rev: ""        # run `pre-commit autoupdate` to fill in the latest tag
-    hooks:
-      - id: arabic-lint
-```
-
-```bash
-pre-commit install
-pre-commit run arabic-lint --all-files
-```
-
-The hook installs into pre-commit's own isolated environment, and because the package
-has no dependencies there is nothing to resolve. Use `id: arabic-lint-strict` instead
-if you want a single stray presentation form to fail the commit too.
-
-### GitHub Actions
-
-```yaml
-# .github/workflows/arabic-lint.yml
-name: arabic-lint
-on: [push, pull_request]
-jobs:
-  arabic-lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Syamjith-NK/arabic-lint@main    # or pin to a tag
-```
-
-Inputs, all optional: `path` (default `.`), `min-severity` (default `reshaped`), `args`
-for anything else the CLI takes, and `version` to install a published release from PyPI
-instead of the code at the ref you pinned.
-
-```yaml
-      - uses: Syamjith-NK/arabic-lint@main
-        with:
-          path: locales
-          min-severity: stray
-          args: --exclude vendor --exclude fixtures
-```
-
-The job fails on findings, because that is what exit code 1 is for. Two things worth
-knowing before you turn either of these on:
-
-- **The severity gate applies to stored text.** A source finding, the reshape+bidi
-  recipe feeding a renderer that already shapes, is not graded by severity and is
-  always reported. That check is quiet by design and does not fire on the thousands of
-  files where the recipe is correct, so it is not the thing that will flood you.
-- **`--fix` is not wired into either integration**, and should not be. Which repair is
-  right depends on whether you control your dependency floor, which is not in the
-  source file: see
-  [which fix is correct depends on your dependency floor](#which-fix-is-correct-depends-on-your-dependency-floor).
 
 ## Adopting it on a codebase that already has findings
 
@@ -262,14 +292,32 @@ worthless, because whether it is a bug depends entirely on what draws the text:
 | matplotlib >= 3.11 | yes | pre-shaping **reverses** the text |
 | Pillow built with Raqm | yes | pre-shaping **reverses** the text |
 | Pillow without Raqm | no | pre-shaping is **required** |
+| wordcloud | draws through Pillow | inherits that Pillow row. The finding names wordcloud, not a matplotlib import that only supplied a colormap |
 | ReportLab, fpdf | no | pre-shaping is **required** |
 | `print()` to a terminal | terminal-dependent | not this tool's call |
 
-So the source check stays silent unless a shaping renderer is imported *and*
-something in the file actually draws with it. It also follows import aliases, follows
-the recipe when `reshape()` and `get_display()` are on separate lines, names the
-renderer that actually draws rather than the first one imported, and ignores a
-pre-shaping helper that a script never calls.
+The source check follows import aliases, follows the recipe when `reshape()` and
+`get_display()` are on separate lines, names the renderer that actually draws
+rather than the first one imported, and ignores a pre-shaping helper that a script
+never calls. It stays quiet unless one of these is true:
+
+- a shaping renderer is imported **and** something in the file draws with the
+  pre-shaped string
+- the file imports matplotlib or Pillow **and** returns that string to a caller
+  (low confidence: the draw may be in another file)
+- another file in the same run imports such a helper and passes it to a drawing call
+
+**wordcloud** counts as drawing on `generate`, `generate_from_text`, and
+`generate_from_frequencies`, and `generate` only when the receiver is a
+`WordCloud`. `model.generate()` stays silent, and so does constructing `WordCloud`
+without generating. The reason names Pillow, not matplotlib.
+
+**A returned helper** is tagged `[LOW]`. `--fix` will not rewrite it, because a
+caller that draws with ReportLab still needs the recipe. A script that only prints
+the result stays silent. `if __name__ == "__main__"` does not hide the return.
+Matplotlib imported in a file that never calls the helper flags nothing. A helper
+that only imports wordcloud stays silent until a scanned caller actually generates.
+The cases are in `tests/test_source.py`.
 
 Validated against six real repositories found by code search: it flags the three that
 are genuinely broken, and stays silent on a ReportLab project, a dead helper in an
@@ -608,8 +656,8 @@ the tool still installs with nothing behind it.
 Renderer knowledge, false-positive reports and test cases taken from real repositories
 are all wanted. [CONTRIBUTING.md](CONTRIBUTING.md) has the two rules that matter: no
 runtime dependencies, ever, and validate against real code rather than invented
-snippets. The open issues are scoped so a stranger can start on one, and the ones
-labelled `good first issue` genuinely are.
+snippets. Issue templates are in `.github/ISSUE_TEMPLATE/`. A false positive is the
+most useful report this project can get.
 
 A false positive is the most valuable report this project can get. The whole design is
 built around staying quiet.
