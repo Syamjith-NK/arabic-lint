@@ -43,7 +43,7 @@ demo/strings.json:3:20: 21 Arabic presentation forms stored [reshaped]  [UNSAFE 
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Syamjith-NK/arabic-lint
-    rev: v0.8.0  # a real tag; `pre-commit autoupdate` bumps it
+    rev: v0.9.0  # a real tag; `pre-commit autoupdate` bumps it
     hooks:
       - id: arabic-lint
 ```
@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: Syamjith-NK/arabic-lint@v0.8.0
+      - uses: Syamjith-NK/arabic-lint@v0.9.0
 ```
 
 Pin a tag. Inputs, all optional: `path` (default `.`), `min-severity` (default
@@ -77,7 +77,7 @@ Pin a tag. Inputs, all optional: `path` (default `.`), `min-severity` (default
 at the ref.
 
 ```yaml
-      - uses: Syamjith-NK/arabic-lint@v0.8.0
+      - uses: Syamjith-NK/arabic-lint@v0.9.0
         with:
           path: locales
           min-severity: stray
