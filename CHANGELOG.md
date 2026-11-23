@@ -4,9 +4,7 @@ This file starts at 0.7.0. Releases before it are in the git history and in the
 [tags](https://github.com/Syamjith-NK/arabic-lint/tags); rather than reconstruct them
 from memory and get a date wrong, the record begins where it is accurate.
 
-## Unreleased
-
-On `main`, after 0.8.0. Not on PyPI until the next tag.
+## 0.9.0 - 2026-11-24
 
 ### Added
 
@@ -27,8 +25,6 @@ On `main`, after 0.8.0. Not on PyPI until the next tag.
   imported in a file that never calls the helper does not flag the helper. A helper
   that only imports wordcloud and returns the recipe stays silent until a scanned
   caller generates.
-
-Notebook scanning is in 0.8.0, below. It is already released.
 
 ## 0.8.0 - 2026-10-04
 
